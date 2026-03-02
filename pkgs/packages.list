@@ -1,3 +1,7 @@
 # BitOS Package Repository
 # Format: name  version  description
 bit-hello    1.0    BitOS SDK example / hello world script
+bit-sysinfo  1.0    Detailed CPU, memory, disk and network info
+bit-netinfo  1.0    Network diagnostics - interfaces, routes, connectivity tests
+bit-monitor  1.0    Live system monitor with CPU/mem/process view (Ctrl+C to exit)
+bit-diskinfo 1.0    Disk and filesystem usage with visual bar charts

@@ -1,0 +1,53 @@
+#!/bin/sh
+# bit-sysinfo: Detailed system information for BitOS
+C0='\033[0m'; C1='\033[1;32m'; C2='\033[1;34m'; C3='\033[1;33m'; C4='\033[1;36m'
+
+printf "${C1}========================================${C0}\n"
+printf "${C1}         BitOS System Information       ${C0}\n"
+printf "${C1}========================================${C0}\n"
+
+# OS
+printf "${C2}%-14s${C0} %s\n" "OS:" "BitOS Professional Edition"
+printf "${C2}%-14s${C0} %s\n" "Kernel:" "$(uname -r)"
+printf "${C2}%-14s${C0} %s\n" "Arch:" "$(uname -m)"
+printf "${C2}%-14s${C0} %s\n" "Hostname:" "$(hostname)"
+printf "${C2}%-14s${C0} %s\n" "Uptime:" "$(uptime | sed 's/.*up //' | sed 's/,.*//')"
+
+printf "${C3}----------------------------------------${C0}\n"
+
+# CPU
+CPU=$(grep 'model name' /proc/cpuinfo 2>/dev/null | head -1 | cut -d: -f2 | sed 's/^ //')
+CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
+printf "${C2}%-14s${C0} %s\n" "CPU:" "${CPU:-Unknown}"
+printf "${C2}%-14s${C0} %s\n" "CPU Cores:" "$CPUS"
+LOAD=$(cat /proc/loadavg 2>/dev/null | awk '{print $1, $2, $3}')
+printf "${C2}%-14s${C0} %s\n" "Load Avg:" "$LOAD"
+
+printf "${C3}----------------------------------------${C0}\n"
+
+# Memory
+MEM_TOTAL=$(grep MemTotal /proc/meminfo | awk '{printf "%.0f MB", $2/1024}')
+MEM_FREE=$(grep MemFree  /proc/meminfo | awk '{printf "%.0f MB", $2/1024}')
+MEM_AVAIL=$(grep MemAvailable /proc/meminfo | awk '{printf "%.0f MB", $2/1024}')
+printf "${C2}%-14s${C0} %s\n" "Mem Total:" "$MEM_TOTAL"
+printf "${C2}%-14s${C0} %s\n" "Mem Free:" "$MEM_FREE"
+printf "${C2}%-14s${C0} %s\n" "Mem Avail:" "$MEM_AVAIL"
+
+printf "${C3}----------------------------------------${C0}\n"
+
+# Disk
+printf "${C2}%-14s${C0}\n" "Disk Usage:"
+df -h 2>/dev/null | grep -v '^Filesystem' | awk '{printf "  %-20s %s used of %s\n", $6, $3, $2}'
+
+printf "${C3}----------------------------------------${C0}\n"
+
+# Network
+printf "${C2}%-14s${C0}\n" "Network:"
+ifconfig 2>/dev/null | grep -E '^[a-z]|inet ' | awk '
+  /^[a-z]/ { iface=$1 }
+  /inet /  { print "  " iface ": " $2 }
+'
+
+printf "${C1}========================================${C0}\n"
+printf "${C4}  Date: $(date)${C0}\n"
+printf "${C1}========================================${C0}\n"

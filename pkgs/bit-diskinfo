@@ -1,0 +1,53 @@
+#!/bin/sh
+# bit-diskinfo: Disk and filesystem information for BitOS
+C0='\033[0m'; C1='\033[1;32m'; C2='\033[1;34m'; C3='\033[1;33m'; C4='\033[1;36m'
+
+printf "${C1}========================================${C0}\n"
+printf "${C1}       BitOS Disk Information           ${C0}\n"
+printf "${C1}========================================${C0}\n"
+
+# Block devices
+printf "${C2}[ Block Devices ]${C0}\n"
+if [ -f /proc/partitions ]; then
+    awk 'NR>2 && $4!="" {
+        size=$3; unit="KB"
+        if (size > 1048576) { size=size/1048576; unit="GB" }
+        else if (size > 1024) { size=size/1024; unit="MB" }
+        printf "  /dev/%-10s  %6.1f %s\n", $4, size, unit
+    }' /proc/partitions
+fi
+
+printf "${C3}----------------------------------------${C0}\n"
+
+# Filesystem usage with bar charts
+printf "${C2}[ Filesystem Usage ]${C0}\n"
+printf "  ${C4}%-20s %6s %6s %6s  %s${C0}\n" "Filesystem" "Size" "Used" "Avail" "Use%"
+df -k 2>/dev/null | grep -v '^Filesystem\|^none\|tmpfs' | while read fs size used avail pct mnt; do
+    used_n=$(echo "$pct" | tr -d '%')
+    bar=$(printf '%0.s#' $(seq 1 $((used_n / 10))))
+    spaces=$(printf '%0.s.' $(seq 1 $((10 - used_n / 10))))
+    # Convert KB to human
+    kb_to_h() {
+        v=$1
+        if [ "$v" -gt 1048576 ]; then printf "%.1fG" $(( v / 1024 / 1024 ))
+        elif [ "$v" -gt 1024 ]; then printf "%dM" $(( v / 1024 ))
+        else printf "%dK" "$v"; fi
+    }
+    printf "  %-20s %6s %6s %6s  [%s%s] %s\n" \
+        "$mnt" "$(kb_to_h $size)" "$(kb_to_h $used)" "$(kb_to_h $avail)" "$bar" "$spaces" "$pct"
+done
+
+printf "${C3}----------------------------------------${C0}\n"
+
+# tmpfs
+printf "${C2}[ Tmpfs Mounts ]${C0}\n"
+df -k 2>/dev/null | grep tmpfs | awk '{printf "  %-20s  %dMB total\n", $NF, $2/1024}'
+
+printf "${C3}----------------------------------------${C0}\n"
+
+# Mounted filesystems from /proc/mounts
+printf "${C2}[ Active Mounts ]${C0}\n"
+cat /proc/mounts 2>/dev/null | grep -v '^none\|^proc\|^sys\|^dev\|^cgroup' | \
+    awk '{printf "  %-15s -> %-20s [%s]\n", $1, $2, $3}'
+
+printf "${C1}========================================${C0}\n"

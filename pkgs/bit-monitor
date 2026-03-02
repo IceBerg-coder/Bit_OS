@@ -1,0 +1,67 @@
+#!/bin/sh
+# bit-monitor: Live system monitor for BitOS (refreshes every 2s, Ctrl+C to exit)
+INTERVAL=${1:-2}
+C0='\033[0m'; C1='\033[1;32m'; C2='\033[1;34m'; C3='\033[1;33m'; C4='\033[1;36m'; CR='\033[1;31m'
+
+# Read CPU times from /proc/stat
+cpu_times() {
+    awk '/^cpu / {print $2+$3+$4+$5+$6+$7+$8, $5}' /proc/stat
+}
+
+prev=$(cpu_times)
+prev_total=$(echo "$prev" | awk '{print $1}')
+prev_idle=$(echo "$prev"  | awk '{print $2}')
+
+while true; do
+    clear
+    printf "${C1}╔══════════════════════════════════════════╗${C0}\n"
+    printf "${C1}║         BitOS Live System Monitor        ║${C0}\n"
+    printf "${C1}╚══════════════════════════════════════════╝${C0}\n"
+    printf "${C4}  %s   (Ctrl+C to exit, interval: %ss)${C0}\n\n" "$(date)" "$INTERVAL"
+
+    # CPU usage
+    cur=$(cpu_times)
+    cur_total=$(echo "$cur" | awk '{print $1}')
+    cur_idle=$(echo "$cur"  | awk '{print $2}')
+    diff_total=$((cur_total - prev_total))
+    diff_idle=$((cur_idle  - prev_idle))
+    if [ "$diff_total" -gt 0 ]; then
+        cpu_pct=$(( (diff_total - diff_idle) * 100 / diff_total ))
+    else
+        cpu_pct=0
+    fi
+    prev_total=$cur_total; prev_idle=$cur_idle
+    bar=$(printf '%0.s|' $(seq 1 $((cpu_pct / 5))))
+    printf "${C2}CPU Usage:${C0}  [%-20s] %3d%%\n" "$bar" "$cpu_pct"
+
+    # Memory
+    mem_total=$(grep MemTotal   /proc/meminfo | awk '{print $2}')
+    mem_avail=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+    mem_used=$(( mem_total - mem_avail ))
+    mem_pct=$(( mem_used * 100 / mem_total ))
+    mem_bar=$(printf '%0.s|' $(seq 1 $((mem_pct / 5))))
+    printf "${C2}Mem Usage:${C0}  [%-20s] %3d%%  (%d/%d MB)\n" \
+        "$mem_bar" "$mem_pct" "$((mem_used/1024))" "$((mem_total/1024))"
+
+    # Load
+    LOAD=$(awk '{print $1, $2, $3}' /proc/loadavg)
+    printf "${C2}Load Avg:${C0}   %s\n" "$LOAD"
+
+    # Uptime
+    printf "${C2}Uptime:${C0}     %s\n\n" "$(uptime | sed 's/.*up //' | sed 's/  / /')"
+
+    # Top processes by VSZ (memory)
+    printf "${C3}── Top Processes ──────────────────────────${C0}\n"
+    printf "  ${C4}%-6s %-10s %s${C0}\n" "PID" "USER" "COMMAND"
+    ps 2>/dev/null | grep -v 'PID\|bit-monitor' | sort -k3 -rn | head -8 | \
+        awk '{printf "  %-6s %-10s %s\n", $1, $2, $NF}'
+
+    printf "\n${C3}── Network ────────────────────────────────${C0}\n"
+    ifconfig eth0 2>/dev/null | grep 'inet ' | \
+        awk '{printf "  eth0: %s\n", $2}'
+    RX=$(cat /sys/class/net/eth0/statistics/rx_bytes 2>/dev/null || echo 0)
+    TX=$(cat /sys/class/net/eth0/statistics/tx_bytes 2>/dev/null || echo 0)
+    printf "  RX: %d KB   TX: %d KB\n" "$((RX/1024))" "$((TX/1024))"
+
+    sleep "$INTERVAL"
+done
