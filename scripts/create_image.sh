@@ -397,7 +397,8 @@ chmod +x etc/rcS.d/S05-hostname
 cat << 'EOF' > etc/rcS.d/S10-depmod
 #!/bin/sh
 echo "Loading basic kernel modules..."
-modprobe -a virtio_net virtio_blk virtio_pci 2>/dev/null
+# virtio_net/blk/pci are built-in (=y) — modprobe returns 1 for built-ins, ignore it
+modprobe -a virtio_net virtio_blk virtio_pci 2>/dev/null || true
 EOF
 chmod +x etc/rcS.d/S10-depmod
 
