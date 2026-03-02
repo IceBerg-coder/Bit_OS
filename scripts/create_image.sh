@@ -371,12 +371,10 @@ bit_pkg() {
             ;;
         "available")
             echo -e "\e[1;34m--- Available Packages in GitHub Repository ---\e[0m"
-            echo "Fetching from: $PKG_LIST_URL"
-            RESULT=$(wget -O- --no-check-certificate "$PKG_LIST_URL" 2>&1)
+            RESULT=$(wget -O- -q --no-check-certificate "$PKG_LIST_URL" 2>/dev/null)
             if echo "$RESULT" | grep -q "^bit-\|^#"; then
-                echo "$RESULT" | grep -v "^Connecting\|^HTTP\|^Length\|^Saving\|^\-\-"
+                echo "$RESULT"
             else
-                echo "wget output: $RESULT"
                 echo -e "\e[1;31mCould not reach GitHub. Check network.\e[0m"
                 echo "DNS test: $(nslookup raw.githubusercontent.com 2>&1 | head -3)"
                 echo "Route: $(route -n 2>/dev/null | grep UG | head -1)"
