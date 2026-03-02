@@ -1,20 +1,21 @@
 # BitOS Package Repository
-# Format: name  version  description
-bit-hello        1.1    BitOS SDK example / hello world script
-bit-sysinfo      1.1    Detailed CPU, memory, disk and network info
-bit-netinfo      1.1    Network diagnostics - interfaces, routes, connectivity tests
-bit-monitor      1.1    Live system monitor with CPU/mem/process view (Ctrl+C to exit)
-bit-diskinfo     1.1    Disk and filesystem usage with visual bar charts
-bit-update       1.1    Update all installed GitHub packages at once
-bit-ps           1.1    Process manager with per-process info and kill support
-bit-log          1.1    Log viewer/manager - view, tail, clear system logs
-bit-bench        1.1    CPU and memory benchmark tool
-bit-files        1.1    File browser with view, find, info, size commands
-bit-editor       1.1    Text file editor with vi backend and file browser
-bit-net          1.1    Network toolkit - get, dns, ping, scan, speed, trace
-bit-backup       1.1    Backup and restore /etc and /home to /var/backup
-bit-cron         1.1    Cron job manager - list, add, remove, edit jobs
-bit-firewall     1.0    Firewall manager TUI - allow/block ports, view rules, reset
-bit-ssl          1.0    TLS certificate generator and HTTPS manager
-bit-users        1.0    Full user management TUI - add, delete, passwd, info
-bit-containers   1.0    Chroot container manager - create, exec, start, stop
+# Format: name  version  sha256  description
+bit-hello        1.1    5ae5418da10147ddf91dc36798ea7e564bfad1c0c442ad4c21de95fdaa794319    BitOS SDK example / hello world script
+bit-sysinfo      1.1    947c721c91af2d943454c8b259c2ad545ee0f5a4762c58648535e5d0354448f8    Detailed CPU, memory, disk and network info
+bit-netinfo      1.1    767df7e45d448d5aa8340096eae4f2b47aa6bb71715f9d2e134449ace60833b4    Network diagnostics - interfaces, routes, connectivity tests
+bit-monitor      1.2    b386f192ca1fb6e04a9dd60600d129015397bcafb729ef0e921cb01df69adcda    Live TUI monitor - CPU/mem/disk/net/services (Ctrl+C to exit)
+bit-diskinfo     1.1    2be9a675b65813f565b50546067f55dbc334d7b7a964c35f1f3f70029a607d59    Disk and filesystem usage with visual bar charts
+bit-update       1.1    dd9b6a3ec4a2d83a1efa891c9c6226338503072119e7f91844afa8b3a9cf98be    Update all installed GitHub packages at once
+bit-ps           1.1    9e40be73edb4864eccc181331f89a5e41ec750b59f0e3d37da52b22d76e755f8    Process manager with per-process info and kill support
+bit-log          1.1    e699397a2f87e921e45c7726fb69b409edc0de799c685f5e10e1238cccc917e1    Log viewer/manager - view, tail, clear system logs
+bit-bench        1.1    2ad7bbdef35a2169d95321bde81ff1e01e9c2ea5f3ab75d0145b524d5d7780fe    CPU and memory benchmark tool
+bit-files        1.1    31e34013f4a989f09cbbb7659dd5026eda53af35f6b005bdce67d764a7c3b1ab    File browser with view, find, info, size commands
+bit-editor       1.1    e0e3b4a0575bfa2ac87bd4f6e3f76b4c7add43d22f018b5f4efddc3b88f6c878    Text file editor with vi backend and file browser
+bit-net          1.1    2f1e0f00ad21e7c0e918a2f4ff38571b8302d9e38c2aa8694c6beca04a8a9859    Network toolkit - get, dns, ping, scan, speed, trace
+bit-backup       1.1    f22fcc9a2038c316a151334b3506ee6547de169d51a7af71c6624a0a359636e5    Backup and restore /etc and /home to /var/backup
+bit-cron         1.1    b14ef4842a4939e2d2a55638696b44def0e10eaa21621d7835a4caa8578a2174    Cron job manager - list, add, remove, edit jobs
+bit-firewall     1.0    daa989ce7ec0bd3e7851fb768dbef6b763303400513509cb3dc0d3c869d2855d    Firewall manager TUI - allow/block ports, view rules, reset
+bit-ssl          1.0    c78957a1800fdf969bee9558d6d6d8117f9a4282a2450759fa1c9c29e00cd74e    TLS certificate generator and HTTPS manager
+bit-users        1.0    c0b1843500577355eb27d0fe3ad477314057c77d3a8fa4fa978a404979c7f626    Full user management TUI - add, delete, passwd, info
+bit-containers   1.0    2421ccf1d1f2b6564ab78f004114e0fe2ba63ed65b6e305da9fa21d74c7eb9c5    Chroot container manager - create, exec, start, stop
+bit-netconf      1.0    829d80db60b0a3e498cd5657fb5d5d713c7c759ee23f92c7ec1937374921d0a3    Static IP / gateway / DNS network configurator

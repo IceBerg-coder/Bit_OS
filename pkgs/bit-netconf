@@ -1,0 +1,211 @@
+#!/bin/sh
+# bit-netconf: Static IP / netmask / gateway / DNS configurator for BitOS
+# Usage: bit-netconf [status|dhcp|set-ip|set-gw|set-dns|apply|menu] [args...]
+
+C0='\033[0m'; C1='\033[1;32m'; C2='\033[1;34m'; C3='\033[1;33m'; CR='\033[1;31m'
+CONF_DIR="/etc/network"
+RESOLV="/etc/resolv.conf"
+
+_header() {
+    printf "${C1}╔══════════════════════════════════════════╗${C0}\n"
+    printf "${C1}║         bit-netconf  v1.0                ║${C0}\n"
+    printf "${C1}║    BitOS Network Configurator            ║${C0}\n"
+    printf "${C1}╚══════════════════════════════════════════╝${C0}\n\n"
+}
+
+_read_conf() {
+    IFACE="${1:-eth0}"
+    CONF="$CONF_DIR/$IFACE.conf"
+    NC_MODE="dhcp"; NC_IP=""; NC_MASK=""; NC_GW=""; NC_DNS=""
+    [ -f "$CONF" ] || return
+    NC_MODE=$(grep '^MODE=' "$CONF" | cut -d= -f2)
+    NC_IP=$(grep '^IP=' "$CONF" | cut -d= -f2)
+    NC_MASK=$(grep '^MASK=' "$CONF" | cut -d= -f2)
+    NC_GW=$(grep '^GW=' "$CONF" | cut -d= -f2)
+    NC_DNS=$(grep '^DNS=' "$CONF" | cut -d= -f2-)
+}
+
+_write_conf() {
+    IFACE="${1:-eth0}"
+    CONF="$CONF_DIR/$IFACE.conf"
+    mkdir -p "$CONF_DIR"
+    cat > "$CONF" << CEOF
+MODE=${NC_MODE}
+IP=${NC_IP}
+MASK=${NC_MASK}
+GW=${NC_GW}
+DNS=${NC_DNS}
+CEOF
+    echo -e "${C1}[+] Saved $CONF${C0}"
+}
+
+_apply_conf() {
+    IFACE="${1:-eth0}"
+    _read_conf "$IFACE"
+    if [ "$NC_MODE" = "dhcp" ] || [ -z "$NC_MODE" ] || [ -z "$NC_IP" ]; then
+        echo -e "${C2}[*] Starting DHCP on $IFACE...${C0}"
+        ifconfig "$IFACE" 0.0.0.0 2>/dev/null
+        udhcpc -i "$IFACE" -q -s /usr/share/udhcpc/default.script 2>/dev/null &
+        echo -e "${C1}[+] DHCP started on $IFACE${C0}"
+    else
+        echo -e "${C2}[*] Applying static IP $NC_IP/$NC_MASK on $IFACE...${C0}"
+        ifconfig "$IFACE" "$NC_IP" netmask "${NC_MASK:-255.255.255.0}" up
+        if [ -n "$NC_GW" ]; then
+            route del default 2>/dev/null
+            route add default gw "$NC_GW" "$IFACE"
+            echo -e "  GW: $NC_GW"
+        fi
+        if [ -n "$NC_DNS" ]; then
+            printf "" > "$RESOLV"
+            for ns in $NC_DNS; do echo "nameserver $ns" >> "$RESOLV"; done
+            echo -e "  DNS: $NC_DNS"
+        fi
+        echo -e "${C1}[+] Static IP applied${C0}"
+    fi
+}
+
+cmd_status() {
+    _header
+    for IFACE in eth0 eth1 lo; do
+        IP=$(ifconfig "$IFACE" 2>/dev/null | grep 'inet ' | awk '{print $2}')
+        [ -z "$IP" ] && continue
+        _read_conf "$IFACE"
+        printf "${C2}Interface: %s${C0}\n" "$IFACE"
+        printf "  %-12s %s\n" "IP (live):" "${IP:-N/A}"
+        printf "  %-12s %s\n" "Mode:" "${NC_MODE:-dhcp}"
+        [ "$NC_MODE" = "static" ] && {
+            printf "  %-12s %s\n" "Static IP:" "${NC_IP}/${NC_MASK:-24}"
+            printf "  %-12s %s\n" "Gateway:" "${NC_GW:-none}"
+        }
+        DNS_LIVE=$(grep '^nameserver' "$RESOLV" 2>/dev/null | awk '{print $2}' | tr '\n' ' ')
+        printf "  %-12s %s\n" "DNS:" "${DNS_LIVE:-N/A}"
+        CONF_FILE="$CONF_DIR/$IFACE.conf"
+        [ -f "$CONF_FILE" ] && printf "  %-12s %s\n" "Config:" "$CONF_FILE"
+        echo ""
+    done
+}
+
+cmd_dhcp() {
+    IFACE="${1:-eth0}"
+    NC_MODE="dhcp"; NC_IP=""; NC_MASK=""; NC_GW=""; NC_DNS=""
+    _write_conf "$IFACE"
+    _apply_conf "$IFACE"
+}
+
+cmd_set_ip() {
+    # bit-netconf set-ip eth0 192.168.1.100/24
+    IFACE="$1"; CIDR="$2"
+    [ -z "$IFACE" ] || [ -z "$CIDR" ] && { echo "Usage: bit-netconf set-ip <iface> <ip/prefix>"; exit 1; }
+    _read_conf "$IFACE"
+    NC_MODE="static"
+    NC_IP="${CIDR%%/*}"
+    PREFIX="${CIDR##*/}"
+    # Convert prefix to netmask
+    case "$PREFIX" in
+        8)  NC_MASK="255.0.0.0" ;;
+        16) NC_MASK="255.255.0.0" ;;
+        24) NC_MASK="255.255.255.0" ;;
+        25) NC_MASK="255.255.255.128" ;;
+        28) NC_MASK="255.255.255.240" ;;
+        30) NC_MASK="255.255.255.252" ;;
+        *)  NC_MASK="255.255.255.0" ;;
+    esac
+    echo -e "${C1}[+] Static IP: $NC_IP / $NC_MASK on $IFACE${C0}"
+    _write_conf "$IFACE"
+}
+
+cmd_set_gw() {
+    # bit-netconf set-gw [iface] gw
+    if [ $# -eq 1 ]; then IFACE="eth0"; NC_GW="$1"
+    else IFACE="$1"; NC_GW="$2"; fi
+    [ -z "$NC_GW" ] && { echo "Usage: bit-netconf set-gw [iface] <gateway>"; exit 1; }
+    _read_conf "$IFACE"
+    NC_GW="$NC_GW"
+    echo -e "${C1}[+] Gateway: $NC_GW on $IFACE${C0}"
+    _write_conf "$IFACE"
+}
+
+cmd_set_dns() {
+    # bit-netconf set-dns 8.8.8.8 1.1.1.1
+    [ -z "$1" ] && { echo "Usage: bit-netconf set-dns <ns1> [ns2...]"; exit 1; }
+    IFACE="eth0"
+    _read_conf "$IFACE"
+    NC_DNS="$*"
+    echo -e "${C1}[+] DNS: $NC_DNS${C0}"
+    _write_conf "$IFACE"
+    # Apply immediately to resolv.conf
+    printf "" > "$RESOLV"
+    for ns in $NC_DNS; do echo "nameserver $ns" >> "$RESOLV"; done
+    echo -e "${C2}[*] $RESOLV updated${C0}"
+}
+
+cmd_apply() {
+    IFACE="${1:-eth0}"
+    echo -e "${C2}[*] Applying network config for $IFACE...${C0}"
+    _apply_conf "$IFACE"
+}
+
+cmd_menu() {
+    while true; do
+        clear
+        _header
+        echo -e "${C2}Current Interfaces:${C0}"
+        for IF in eth0 eth1; do
+            IP=$(ifconfig "$IF" 2>/dev/null | grep 'inet ' | awk '{print $2}')
+            [ -n "$IP" ] && printf "  %-8s %s\n" "$IF" "$IP"
+        done
+        echo ""
+        echo -e "${C3}  1) Show status"
+        echo    "  2) Use DHCP (eth0)"
+        echo    "  3) Set static IP"
+        echo    "  4) Set gateway"
+        echo    "  5) Set DNS"
+        echo    "  6) Apply settings now"
+        echo -e "  q) Quit${C0}"
+        echo ""
+        printf "Choice: "
+        read -r choice
+        case "$choice" in
+            1) cmd_status; echo -n "Press Enter..."; read -r _ ;;
+            2) printf "Interface [eth0]: "; read -r IF; cmd_dhcp "${IF:-eth0}" ;;
+            3)
+                printf "Interface [eth0]: "; read -r IF; IF="${IF:-eth0}"
+                printf "IP/prefix (e.g. 192.168.1.100/24): "; read -r CIDR
+                cmd_set_ip "$IF" "$CIDR"
+                printf "Gateway (blank to skip): "; read -r GW
+                [ -n "$GW" ] && cmd_set_gw "$IF" "$GW"
+                printf "DNS (blank for 8.8.8.8 1.1.1.1): "; read -r DNS_INPUT
+                cmd_set_dns ${DNS_INPUT:-8.8.8.8 1.1.1.1}
+                cmd_apply "$IF"
+                echo -n "Press Enter..."; read -r _ ;;
+            4) printf "Gateway: "; read -r GW; cmd_set_gw eth0 "$GW" ;;
+            5) printf "DNS servers (space-separated): "; read -r DNS_INPUT; cmd_set_dns $DNS_INPUT ;;
+            6) printf "Interface [eth0]: "; read -r IF; cmd_apply "${IF:-eth0}" ;;
+            q|Q) break ;;
+            *) echo "Invalid choice" ;;
+        esac
+    done
+}
+
+case "$1" in
+    status)   cmd_status ;;
+    dhcp)     cmd_dhcp "$2" ;;
+    set-ip)   cmd_set_ip "$2" "$3" ;;
+    set-gw)   cmd_set_gw "$2" "$3" ;;
+    set-dns)  shift; cmd_set_dns "$@" ;;
+    apply)    cmd_apply "$2" ;;
+    menu)     cmd_menu ;;
+    *)
+        _header
+        echo "Usage: bit-netconf <command> [args]"
+        echo ""
+        echo "Commands:"
+        printf "  %-35s %s\n" "status"                   "Show interface status and saved config"
+        printf "  %-35s %s\n" "dhcp [iface]"             "Use DHCP on interface (default: eth0)"
+        printf "  %-35s %s\n" "set-ip <iface> <ip/pfx>"  "Set static IP (e.g. eth0 192.168.1.5/24)"
+        printf "  %-35s %s\n" "set-gw [iface] <gw>"      "Set default gateway"
+        printf "  %-35s %s\n" "set-dns <ns1> [ns2]"      "Set DNS nameservers"
+        printf "  %-35s %s\n" "apply [iface]"             "Apply saved config immediately"
+        printf "  %-35s %s\n" "menu"                      "Interactive TUI menu"
+        ;;
+esac

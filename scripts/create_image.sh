@@ -189,7 +189,7 @@ cat << 'EOF' > etc/inittab
 ::respawn:/sbin/getty -L ttyS0 115200 vt100
 ::respawn:/sbin/getty -L tty1 115200 linux
 ::ctrlaltdel:/sbin/reboot
-::shutdown:/bin/umount -a -r
+::shutdown:/etc/init.d/shutdown.sh
 ::restart:/sbin/init
 EOF
 
@@ -239,6 +239,36 @@ chown -R 1000:1000 /home/kaung 2>/dev/null
 # Set hostname
 hostname -F /etc/hostname
 EOF
+
+# Graceful shutdown script — called by inittab on halt/shutdown/SIGTERM to PID 1
+log_info "Creating etc/init.d/shutdown.sh..."
+cat << 'SHUTEOF' > etc/init.d/shutdown.sh
+#!/bin/sh
+# BitOS graceful shutdown — stops services in reverse order, syncs, unmounts
+log_sh() { echo -e "\e[1;33m[shutdown]\e[0m $1"; }
+log_sh "Graceful shutdown initiated..."
+
+# Stop services in reverse order
+for SVC in socat httpd sshd crond syslogd klogd telnetd; do
+    if pidof "$SVC" >/dev/null 2>&1; then
+        log_sh "Stopping $SVC..."
+        killall -TERM "$SVC" 2>/dev/null
+        sleep 1
+        killall -KILL "$SVC" 2>/dev/null
+    fi
+done
+
+# Flush filesystem write cache
+log_sh "Syncing filesystems..."
+sync; sync
+
+# Unmount non-root filesystems
+log_sh "Unmounting filesystems..."
+umount -a -r 2>/dev/null
+
+log_sh "Shutdown complete."
+SHUTEOF
+chmod +x etc/init.d/shutdown.sh
 
 # Create initial startup scripts for rcS.d
 log_info "Creating udhcpc default script (for DNS)..."
@@ -599,10 +629,11 @@ log_info "Creating MOTD and profile..."
 cat << 'EOF' > etc/motd
 Welcome to BitOS Professional Edition
   bit_info             - system info
-  bpm available        - browse 18 packages
+  bpm available        - browse 19 packages
   svc status           - service manager
   bit-firewall menu    - firewall TUI
   bit-users menu       - user manager TUI
+  bit-netconf status   - network configurator
   bit-containers list  - container manager
 Dashboard: http://localhost:80/dashboard.cgi
    HTTPS: https://localhost:443/dashboard.cgi
@@ -662,16 +693,31 @@ bpm() {
                 echo -e "\e[1;32m[!] $2 is now available\e[0m"
             else
                 echo -e "\e[1;33m[-] Checking GitHub repository...\e[0m"
-                wget -q --no-check-certificate "$REPO_URL/$2" -O "/usr/bin/$2"
-                if [ $? -eq 0 ] && [ -s "/usr/bin/$2" ]; then
-                     chmod +x "/usr/bin/$2"
-                     PKG_VER=$(wget -O- -q --no-check-certificate "$PKG_LIST_URL" 2>/dev/null | awk -v p="$2" '$1==p{print $2}')
+                wget -q --no-check-certificate "$REPO_URL/$2" -O "/tmp/bpm_dl_$2"
+                if [ $? -eq 0 ] && [ -s "/tmp/bpm_dl_$2" ]; then
+                     # SHA256 verification
+                     REMOTE_META=$(wget -O- -q --no-check-certificate "$PKG_LIST_URL" 2>/dev/null)
+                     PKG_VER=$(echo "$REMOTE_META" | awk -v p="$2" '$1==p{print $2}')
+                     EXPECTED_SUM=$(echo "$REMOTE_META" | awk -v p="$2" '$1==p{print $3}')
                      [ -z "$PKG_VER" ] && PKG_VER="1.0"
+                     if [ -n "$EXPECTED_SUM" ]; then
+                         ACTUAL_SUM=$(sha256sum "/tmp/bpm_dl_$2" | awk '{print $1}')
+                         if [ "$ACTUAL_SUM" != "$EXPECTED_SUM" ]; then
+                             rm -f "/tmp/bpm_dl_$2"
+                             echo -e "\e[1;31m[!] SHA256 mismatch for $2 — aborting install\e[0m"
+                             echo -e "  expected: $EXPECTED_SUM"
+                             echo -e "  got:      $ACTUAL_SUM"
+                             return 1
+                         fi
+                         echo -e "\e[1;32m[✓] SHA256 verified\e[0m"
+                     fi
+                     mv "/tmp/bpm_dl_$2" "/usr/bin/$2"
+                     chmod +x "/usr/bin/$2"
                      echo "$2 $PKG_VER (github)" >> "$PKG_DB"
                      echo -e "\e[1;32m[+] Installed $2 v${PKG_VER} from GitHub repository.\e[0m"
                      echo "Run: $2"
                 else
-                     rm -f "/usr/bin/$2"
+                     rm -f "/tmp/bpm_dl_$2"
                      echo -e "\e[1;31m[!] Error: $2 not found. Run: bpm available\e[0m"
                 fi
             fi
@@ -709,7 +755,15 @@ bpm() {
             echo -e "\e[1;34m--- Available Packages in GitHub Repository ---\e[0m"
             RESULT=$(wget -O- -q --no-check-certificate "$PKG_LIST_URL" 2>/dev/null)
             if echo "$RESULT" | grep -q "^bit-\|^#"; then
-                echo "$RESULT"
+                printf "  \e[1;36m%-20s %-8s %s\e[0m\n" "NAME" "VERSION" "DESCRIPTION"
+                printf "  %-20s %-8s %s\n" "----" "-------" "-----------"
+                echo "$RESULT" | grep '^bit-' | while IFS= read -r L; do
+                    N=$(echo "$L" | awk '{print $1}')
+                    V=$(echo "$L" | awk '{print $2}')
+                    # field 3 is sha256 (64 chars), description starts at field 4
+                    D=$(echo "$L" | awk '{for(i=4;i<=NF;i++) printf "%s ", $i; print ""}')
+                    printf "  \e[1;32m%-20s\e[0m \e[1;33m%-8s\e[0m %s\n" "$N" "$V" "$D"
+                done
             else
                 echo -e "\e[1;31mCould not reach GitHub. Check network.\e[0m"
                 echo "DNS test: $(nslookup raw.githubusercontent.com 2>&1 | head -3)"
@@ -746,6 +800,16 @@ bpm() {
                 echo -e "\e[1;33m[~] Upgrading $PKG ($INST_VER -> $REMOTE_VER)...\e[0m"
                 wget -q --no-check-certificate "$REPO_URL/$PKG" -O "/tmp/${PKG}.new"
                 if [ $? -eq 0 ] && [ -s "/tmp/${PKG}.new" ]; then
+                    # Verify SHA256 on upgrade
+                    EXPECTED_SUM=$(echo "$REMOTE_LIST" | awk -v p="$PKG" '$1==p{print $3}')
+                    if [ -n "$EXPECTED_SUM" ]; then
+                        ACTUAL_SUM=$(sha256sum "/tmp/${PKG}.new" | awk '{print $1}')
+                        if [ "$ACTUAL_SUM" != "$EXPECTED_SUM" ]; then
+                            rm -f "/tmp/${PKG}.new"
+                            echo -e "\e[1;31m[!] SHA256 mismatch for $PKG — skipping\e[0m"
+                            FAILED=$((FAILED+1)); continue
+                        fi
+                    fi
                     mv "/tmp/${PKG}.new" "/usr/bin/$PKG"; chmod +x "/usr/bin/$PKG"
                     sed -i "/^$PKG /d" "$PKG_DB" 2>/dev/null
                     echo "$PKG $REMOTE_VER (github)" >> "$PKG_DB"
