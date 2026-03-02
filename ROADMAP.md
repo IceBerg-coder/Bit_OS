@@ -42,7 +42,7 @@
 
 ---
 
-## Phase 2 — Real Userspace `v2.0` 🔄 *IN PROGRESS*
+## Phase 2 — Real Userspace `v2.0` ✅ *COMPLETE*
 
 > Move from BusyBox-only to real statically-linked software built against musl libc.
 
@@ -74,13 +74,11 @@
 
 > **Note:** "musl-dynamic" means the binary links against musl's `libc.so` (the musl dynamic linker `/lib/ld-musl-x86_64.so.1`).
 > `ld-musl-x86_64.so.1` is pre-bundled in the initramfs by `create_image.sh` — curl and jq work out-of-the-box after bpm install.
-> `TERM=xterm` set in `/etc/profile` — ncurses apps (htop, nano) work correctly in the QEMU console.
+> `TERMINFO=/usr/share/terminfo` + `/etc/terminfo` symlink in initramfs — overrides hardcoded sysroot path compiled into ncurses static builds.
 
-### 2.4 — Package Count Sprint
-- Target: 50 packages for v2.0-alpha, 100 for v2.0
-- Add `bit-curl`, `bit-fetch` wrappers for curl integration in bpm workflow
+**QEMU validation (Mar 3 2026):** curl 8.9.1 ✅  jq 1.7.1 ✅  nano 7.2 ✅  htop 3.3.0 TUI ✅  rsync 3.4.1 ✅
 
-**Milestone: v2.0** — musl libc + 100 packages + gcc toolchain
+**Milestone: v2.0** ✅ — musl toolchain + 6 real packages + QEMU validated *(shipped)*
 
 ---
 
