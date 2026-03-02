@@ -1,0 +1,86 @@
+#!/bin/sh
+# bit-backup: Backup and restore utility for BitOS
+C0='\033[0m'; C1='\033[1;32m'; C2='\033[1;34m'; C3='\033[1;31m'; C4='\033[1;33m'
+
+BACKUP_DIR="/var/backup"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+usage() {
+    printf "${C1}bit-backup${C0} - BitOS Backup Tool\n\n"
+    printf "${C2}Usage:${C0}\n"
+    printf "  bit-backup create           Backup /etc and /home\n"
+    printf "  bit-backup create <dir>     Backup specific directory\n"
+    printf "  bit-backup list             List available backups\n"
+    printf "  bit-backup restore <file>   Restore from backup archive\n"
+    printf "  bit-backup info <file>      Show contents of backup\n"
+    printf "  bit-backup clean            Remove all backups\n"
+}
+
+case "$1" in
+    create)
+        mkdir -p "$BACKUP_DIR"
+        TARGET="${2:-}"
+        if [ -n "$TARGET" ]; then
+            [ ! -d "$TARGET" ] && printf "${C3}Directory not found: $TARGET${C0}\n" && exit 1
+            NAME="backup_$(basename $TARGET)_${TIMESTAMP}.tar.gz"
+            printf "${C2}[*] Backing up $TARGET...${C0}\n"
+            tar -czf "$BACKUP_DIR/$NAME" "$TARGET" 2>/dev/null
+        else
+            NAME="backup_system_${TIMESTAMP}.tar.gz"
+            printf "${C2}[*] Backing up /etc and /home...${C0}\n"
+            tar -czf "$BACKUP_DIR/$NAME" /etc /home 2>/dev/null
+        fi
+        SIZE=$(ls -lh "$BACKUP_DIR/$NAME" | awk '{print $5}')
+        printf "${C1}[✓] Backup created: $BACKUP_DIR/$NAME ($SIZE)${C0}\n"
+        ;;
+    list)
+        printf "${C1}--- Available Backups ---${C0}\n"
+        mkdir -p "$BACKUP_DIR"
+        COUNT=0
+        for f in "$BACKUP_DIR"/*.tar.gz; do
+            [ -f "$f" ] || continue
+            SIZE=$(ls -lh "$f" | awk '{print $5}')
+            DATE=$(ls -l "$f" | awk '{print $6, $7, $8}')
+            printf "  ${C2}%-45s${C0} %6s  %s\n" "$(basename $f)" "$SIZE" "$DATE"
+            COUNT=$(( COUNT + 1 ))
+        done
+        [ $COUNT -eq 0 ] && printf "  ${C4}(no backups found)${C0}\n"
+        printf "${C1}Total: $COUNT backup(s) in $BACKUP_DIR${C0}\n"
+        ;;
+    restore)
+        [ -z "$2" ] && printf "${C3}Usage: bit-backup restore <file>${C0}\n" && exit 1
+        FILE="$2"
+        [ ! -f "$FILE" ] && FILE="$BACKUP_DIR/$2"
+        [ ! -f "$FILE" ] && printf "${C3}Backup not found: $2${C0}\n" && exit 1
+        printf "${C4}[!] This will overwrite existing files. Continue? [y/N] ${C0}"
+        read ans
+        [ "$ans" != "y" ] && [ "$ans" != "Y" ] && exit 0
+        printf "${C2}[*] Restoring from $FILE...${C0}\n"
+        tar -xzf "$FILE" -C / 2>/dev/null
+        printf "${C1}[✓] Restore complete${C0}\n"
+        ;;
+    info)
+        [ -z "$2" ] && printf "${C3}Usage: bit-backup info <file>${C0}\n" && exit 1
+        FILE="$2"
+        [ ! -f "$FILE" ] && FILE="$BACKUP_DIR/$2"
+        [ ! -f "$FILE" ] && printf "${C3}Backup not found: $2${C0}\n" && exit 1
+        printf "${C1}--- Contents: $(basename $FILE) ---${C0}\n"
+        tar -tzf "$FILE" 2>/dev/null | head -40
+        TOTAL=$(tar -tzf "$FILE" 2>/dev/null | wc -l)
+        printf "${C2}Total: $TOTAL entries${C0}\n"
+        ;;
+    clean)
+        printf "${C4}[!] Remove all backups in $BACKUP_DIR? [y/N] ${C0}"
+        read ans
+        [ "$ans" != "y" ] && [ "$ans" != "Y" ] && exit 0
+        rm -f "$BACKUP_DIR"/*.tar.gz
+        printf "${C1}[✓] All backups removed${C0}\n"
+        ;;
+    ""|--help|-h)
+        usage
+        ;;
+    *)
+        printf "${C3}Unknown command: $1${C0}\n\n"
+        usage
+        ;;
+esac

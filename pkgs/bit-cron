@@ -1,0 +1,91 @@
+#!/bin/sh
+# bit-cron: Cron job manager for BitOS
+C0='\033[0m'; C1='\033[1;32m'; C2='\033[1;34m'; C3='\033[1;31m'; C4='\033[1;33m'; C5='\033[1;36m'
+
+CRON_FILE="/var/spool/cron/crontabs/root"
+
+usage() {
+    printf "${C1}bit-cron${C0} - BitOS Cron Manager\n\n"
+    printf "${C2}Usage:${C0}\n"
+    printf "  bit-cron list               Show all cron jobs\n"
+    printf "  bit-cron add <schedule> <cmd>  Add a cron job\n"
+    printf "  bit-cron remove <n>         Remove job by line number\n"
+    printf "  bit-cron edit               Open crontab in editor\n"
+    printf "  bit-cron run <cmd>          Run a command immediately\n"
+    printf "  bit-cron examples           Show schedule examples\n"
+    printf "\n${C4}Schedule format: min hour day month weekday${C0}\n"
+}
+
+case "$1" in
+    list)
+        printf "${C1}--- Cron Jobs (root) ---${C0}\n"
+        if [ ! -f "$CRON_FILE" ] || [ ! -s "$CRON_FILE" ]; then
+            printf "  ${C4}(no cron jobs configured)${C0}\n"
+            printf "  Tip: bit-cron add '* * * * *' 'echo hello'\n"
+        else
+            N=1
+            while IFS= read -r line; do
+                [ -z "$line" ] && continue
+                echo "$line" | grep -q '^#' && continue
+                SCHEDULE=$(echo "$line" | awk '{print $1,$2,$3,$4,$5}')
+                CMD=$(echo "$line" | cut -d' ' -f6-)
+                printf "  ${C2}[%2d]${C0} ${C5}%-25s${C0}  %s\n" "$N" "$SCHEDULE" "$CMD"
+                N=$(( N + 1 ))
+            done < "$CRON_FILE"
+        fi
+        printf "\n${C2}Cron daemon status:${C0} "
+        pgrep crond > /dev/null && printf "${C1}running${C0}\n" || printf "${C3}not running${C0}\n"
+        ;;
+    add)
+        [ -z "$2" ] || [ -z "$3" ] && printf "${C3}Usage: bit-cron add '<schedule>' '<cmd>'${C0}\nExample: bit-cron add '0 * * * *' 'echo hourly'\n" && exit 1
+        ENTRY="$2 $3"
+        mkdir -p "$(dirname $CRON_FILE)"
+        echo "$ENTRY" >> "$CRON_FILE"
+        printf "${C1}[✓] Added: $ENTRY${C0}\n"
+        ;;
+    remove)
+        [ -z "$2" ] && printf "${C3}Usage: bit-cron remove <line_number>${C0}\n" && exit 1
+        [ ! -f "$CRON_FILE" ] && printf "${C3}No crontab found${C0}\n" && exit 1
+        # Filter out comment lines for numbering
+        TOTAL=$(grep -v '^#' "$CRON_FILE" | grep -v '^$' | wc -l)
+        if [ "$2" -gt "$TOTAL" ] || [ "$2" -lt 1 ] 2>/dev/null; then
+            printf "${C3}Invalid line number. Use 'bit-cron list' to see jobs.${C0}\n" && exit 1
+        fi
+        # Get the actual content of the nth non-comment line
+        ENTRY=$(grep -v '^#' "$CRON_FILE" | grep -v '^$' | sed -n "${2}p")
+        # Remove only the first exact match
+        grep -v "^$(echo "$ENTRY" | sed 's/[.*[]/\\&/g')$" "$CRON_FILE" > /tmp/cron_tmp
+        mv /tmp/cron_tmp "$CRON_FILE"
+        printf "${C1}[✓] Removed: $ENTRY${C0}\n"
+        ;;
+    edit)
+        vi "$CRON_FILE"
+        printf "${C2}Reloading crond...${C0}\n"
+        pkill -HUP crond 2>/dev/null || crond -b -l 8 2>/dev/null
+        printf "${C1}[✓] Done${C0}\n"
+        ;;
+    run)
+        [ -z "$2" ] && printf "${C3}Usage: bit-cron run <cmd>${C0}\n" && exit 1
+        printf "${C2}[*] Running: $2${C0}\n"
+        sh -c "$2"
+        ;;
+    examples)
+        printf "${C1}--- Cron Schedule Examples ---${C0}\n"
+        printf "  ${C5}%-22s${C0}  %s\n" "* * * * *"    "Every minute"
+        printf "  ${C5}%-22s${C0}  %s\n" "0 * * * *"    "Every hour (at :00)"
+        printf "  ${C5}%-22s${C0}  %s\n" "0 0 * * *"    "Daily at midnight"
+        printf "  ${C5}%-22s${C0}  %s\n" "0 6 * * *"    "Daily at 6am"
+        printf "  ${C5}%-22s${C0}  %s\n" "0 0 * * 0"    "Weekly on Sunday"
+        printf "  ${C5}%-22s${C0}  %s\n" "0 0 1 * *"    "Monthly on the 1st"
+        printf "  ${C5}%-22s${C0}  %s\n" "*/5 * * * *"  "Every 5 minutes"
+        printf "  ${C5}%-22s${C0}  %s\n" "0 9-17 * * 1-5" "Hourly Mon-Fri 9am-5pm"
+        printf "\n${C4}Usage: bit-cron add '0 * * * *' '/usr/bin/bit-sysinfo >> /var/log/hourly.log'${C0}\n"
+        ;;
+    ""|--help|-h)
+        usage
+        ;;
+    *)
+        printf "${C3}Unknown command: $1${C0}\n\n"
+        usage
+        ;;
+esac

@@ -10,3 +10,7 @@ bit-ps       1.0    Process manager with per-process info and kill support
 bit-log      1.0    Log viewer/manager - view, tail, clear system logs
 bit-bench    1.0    CPU and memory benchmark tool
 bit-files    1.0    File browser with view, find, info, size commands
+bit-editor   1.0    Text file editor with vi backend and file browser
+bit-net      1.0    Network toolkit - get, dns, ping, scan, speed, trace
+bit-backup   1.0    Backup and restore /etc and /home to /var/backup
+bit-cron     1.0    Cron job manager - list, add, remove, edit jobs
