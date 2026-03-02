@@ -48,7 +48,7 @@
 
 ### 2.1 — musl-cross-make Toolchain 🔄
 - `scripts/build_musl_toolchain.sh` — builds `musl-cross-make` → `x86_64-linux-musl-gcc` in `~/musl-cross/`
-- GCC 13.2.0 + musl 1.2.5 + binutils 2.42
+- GCC 13.3.0 + musl 1.2.5 + binutils 2.44
 - Sysroot: static `zlib`, `openssl`, `ncurses`, `readline` built in `build/musl-sysroot/`
 
 ### 2.2 — Static Package Builder 🔄

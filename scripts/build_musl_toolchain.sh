@@ -8,16 +8,16 @@ source "$(dirname "$0")/common.sh"
 TOOLCHAIN_DIR="${MUSL_TOOLCHAIN_DIR:-$HOME/musl-cross}"
 MCM_DIR="$BUILD_DIR/musl-cross-make"
 
-GCC_VER="13.2.0"
+GCC_VER="13.3.0"
 MUSL_VER="1.2.5"
-BINUTILS_VER="2.42"
+BINUTILS_VER="2.44"
 TARGET="x86_64-linux-musl"
 
 # ---------------------------------------------------------------------------
 check_host_deps() {
     log_info "Checking host build dependencies..."
     local MISSING=()
-    for T in gcc g++ make git wget tar bison flex perl texinfo; do
+    for T in gcc g++ make git wget tar bison flex perl makeinfo; do
         command -v "$T" &>/dev/null || MISSING+=("$T")
     done
     if [ ${#MISSING[@]} -gt 0 ]; then
