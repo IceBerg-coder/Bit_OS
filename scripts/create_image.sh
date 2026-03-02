@@ -117,12 +117,47 @@ hostname -F /etc/hostname
 EOF
 
 # Create initial startup scripts for rcS.d
+log_info "Creating udhcpc default script (for DNS)..."
+mkdir -p usr/share/udhcpc
+cat << 'EOF' > usr/share/udhcpc/default.script
+#!/bin/sh
+# udhcpc script - configure IP, default route, and DNS
+case "$1" in
+  bound|renew)
+    ifconfig "$interface" "$ip" ${subnet:+netmask "$subnet"}
+    [ -n "$router" ] && route add default gw "$router" dev "$interface"
+    : > /etc/resolv.conf
+    if [ -n "$dns" ]; then
+      for ns in $dns; do
+        echo "nameserver $ns" >> /etc/resolv.conf
+      done
+    else
+      echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+      echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+    fi
+    ;;
+  deconfig)
+    ifconfig "$interface" 0.0.0.0
+    ;;
+esac
+exit 0
+EOF
+chmod +x usr/share/udhcpc/default.script
+
 log_info "Creating rcS.d startup scripts..."
 mkdir -p etc/rcS.d
 cat << 'EOF' > etc/rcS.d/S01-network
 #!/bin/sh
-echo "Attempting to bring up eth0..."
-udhcpc -b -i eth0 -p /var/run/udhcpc.eth0.pid >/dev/null 2>&1 &
+echo "Bringing up eth0..."
+ifconfig eth0 up
+sleep 1
+echo "Attempting DHCP on eth0..."
+udhcpc -i eth0 -p /var/run/udhcpc.eth0.pid -q
+if [ -z "$(cat /etc/resolv.conf 2>/dev/null)" ]; then
+  echo "nameserver 8.8.8.8" > /etc/resolv.conf
+  echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+fi
+echo "Network: $(ifconfig eth0 | grep 'inet ' | awk '{print $2}') DNS: $(head -1 /etc/resolv.conf 2>/dev/null)"
 EOF
 chmod +x etc/rcS.d/S01-network
 
@@ -291,7 +326,7 @@ bit_pkg() {
                 echo -e "\e[1;32m[!] $2 is now available in /home/bin\e[0m"
             else
                 echo -e "\e[1;33m[-] Checking GitHub repository...\e[0m"
-                wget -q "$REPO_URL/$2" -O "/home/bin/$2"
+                wget -q --no-check-certificate "$REPO_URL/$2" -O "/home/bin/$2"
                 if [ $? -eq 0 ] && [ -s "/home/bin/$2" ]; then
                      chmod +x "/home/bin/$2"
                      echo "$2 (github)" >> "$PKG_DB"
@@ -318,7 +353,16 @@ bit_pkg() {
             ;;
         "available")
             echo -e "\e[1;34m--- Available Packages in GitHub Repository ---\e[0m"
-            wget -qO- "$PKG_LIST_URL" 2>/dev/null || echo "Could not reach GitHub. Check network."
+            echo "Fetching from: $PKG_LIST_URL"
+            RESULT=$(wget -O- --no-check-certificate "$PKG_LIST_URL" 2>&1)
+            if echo "$RESULT" | grep -q "^bit-\|^#"; then
+                echo "$RESULT" | grep -v "^Connecting\|^HTTP\|^Length\|^Saving\|^\-\-"
+            else
+                echo "wget output: $RESULT"
+                echo -e "\e[1;31mCould not reach GitHub. Check network.\e[0m"
+                echo "DNS test: $(nslookup raw.githubusercontent.com 2>&1 | head -3)"
+                echo "Route: $(route -n 2>/dev/null | grep UG | head -1)"
+            fi
             ;;
         "search")
             echo -e "\e[1;34m--- Matching Built-in Applets ---\e[0m"
