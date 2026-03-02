@@ -1,0 +1,8 @@
+#!/bin/bash
+# A simple script to demonstrate BitOS packaging
+echo -e "\e[1;36m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\e[0m"
+echo -e "\e[1;36m   Welcome to the BitOS SDK Example   \e[0m"
+echo -e "\e[1;36m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\e[0m"
+echo "Current Date: $(date)"
+echo "Memory Available: $(free -h | grep Mem | awk '{print $4}')"
+echo -e "\e[1;32m[SUCCESS] Package 'bit-hello' is running!\e[0m"

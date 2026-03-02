@@ -1,0 +1,17 @@
+# Build output - large binaries
+output/
+build/
+
+# Downloaded source tarballs
+src/*.tar.xz
+src/*.tar.bz2
+src/*.tar.gz
+
+# Kernel and busybox build artifacts (keep source directories)
+src/linux-*/vmlinux
+src/linux-*/vmlinuz
+src/busybox-*/_install/
+
+# Storage images
+*.img
+*.iso
