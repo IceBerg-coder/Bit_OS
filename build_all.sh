@@ -11,6 +11,7 @@ read
 ./scripts/build_kernel.sh
 ./scripts/build_openssh.sh
 ./scripts/create_image.sh
+./scripts/build_iso.sh
 
 log_info "Build process complete!"
 log_info "Kernel: $OUTPUT_DIR/vmlinuz"

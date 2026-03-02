@@ -9,8 +9,12 @@
 STORAGE_IMG="output/storage.img"
 [ ! -f "$STORAGE_IMG" ] && echo "[!] No storage.img found. Run: bash scripts/create_storage.sh" && STORAGE_IMG=""
 
+# Direct kernel boot — always picks up the latest vmlinuz + initramfs.cpio.gz
+# (avoids stale ISO issues; matches kernel cmdline from build_iso.sh)
 qemu-system-x86_64 \
-    -cdrom output/bitos.iso \
+    -kernel output/vmlinuz \
+    -initrd output/initramfs.cpio.gz \
+    -append "console=ttyS0 console=tty1 quiet" \
     -m 256M \
     -net nic \
     -net user,hostfwd=tcp::2222-:22,hostfwd=tcp::2323-:23,hostfwd=tcp::8180-:80,hostfwd=tcp::8443-:443 \
