@@ -24,6 +24,15 @@ else
     log_info "  (musl toolchain not found — skipping; curl/jq will fail until bpm install musl-libc)"
 fi
 
+log_info "Bundling terminfo entries (xterm, xterm-256color, linux)..."
+mkdir -p usr/share/terminfo/x usr/share/terminfo/l
+for _ti in /usr/share/terminfo/x/xterm /usr/share/terminfo/x/xterm-256color; do
+    [ -f "$_ti" ] && cp "$_ti" usr/share/terminfo/x/ && log_info "  + $(basename $_ti)"
+done
+for _ti in /usr/share/terminfo/l/linux; do
+    [ -f "$_ti" ] && cp "$_ti" usr/share/terminfo/l/ && log_info "  + $(basename $_ti)"
+done
+
 log_info "Copying OpenSSH server..."
 if [ -f "$BUILD_DIR/openssh/sbin/sshd" ]; then
     cp "$BUILD_DIR/openssh/sbin/sshd"        usr/sbin/sshd
