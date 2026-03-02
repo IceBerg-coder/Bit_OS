@@ -320,27 +320,27 @@ bit_pkg() {
             echo -e "\e[1;34m[*] Searching for $2...\e[0m"
             if busybox --list | grep -qx "$2"; then
                 echo -e "\e[1;32m[+] Installing built-in applet: $2\e[0m"
-                mkdir -p /home/bin
-                ln -sf /bin/busybox "/home/bin/$2"
+                ln -sf /bin/busybox "/usr/bin/$2"
                 echo "$2 (builtin)" >> "$PKG_DB"
-                echo -e "\e[1;32m[!] $2 is now available in /home/bin\e[0m"
+                echo -e "\e[1;32m[!] $2 is now available\e[0m"
             else
                 echo -e "\e[1;33m[-] Checking GitHub repository...\e[0m"
-                wget -q --no-check-certificate "$REPO_URL/$2" -O "/home/bin/$2"
-                if [ $? -eq 0 ] && [ -s "/home/bin/$2" ]; then
-                     chmod +x "/home/bin/$2"
+                wget -q --no-check-certificate "$REPO_URL/$2" -O "/usr/bin/$2"
+                if [ $? -eq 0 ] && [ -s "/usr/bin/$2" ]; then
+                     chmod +x "/usr/bin/$2"
                      echo "$2 (github)" >> "$PKG_DB"
                      echo -e "\e[1;32m[+] Installed $2 from GitHub repository.\e[0m"
+                     echo "Run: $2"
                 else
-                     rm -f "/home/bin/$2"
+                     rm -f "/usr/bin/$2"
                      echo -e "\e[1;31m[!] Error: $2 not found. Run: bit_pkg available\e[0m"
                 fi
             fi
             ;;
         "remove")
             [ -z "$2" ] && echo "Usage: bit_pkg remove <applet>" && return 1
-            if [ -f "/home/bin/$2" ]; then
-                rm "/home/bin/$2"
+            if [ -f "/usr/bin/$2" ]; then
+                rm "/usr/bin/$2"
                 sed -i "/^$2 /d" "$PKG_DB" 2>/dev/null
                 echo -e "\e[1;32m[-] Removed $2\e[0m"
             else
