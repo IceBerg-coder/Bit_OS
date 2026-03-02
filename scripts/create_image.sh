@@ -32,6 +32,9 @@ done
 for _ti in /usr/share/terminfo/l/linux; do
     [ -f "$_ti" ] && cp "$_ti" usr/share/terminfo/l/ && log_info "  + $(basename $_ti)"
 done
+# /etc/terminfo symlink — ncurses checks this path before usr/share/terminfo
+ln -sf /usr/share/terminfo etc/terminfo
+log_info "  + etc/terminfo -> /usr/share/terminfo"
 
 log_info "Copying OpenSSH server..."
 if [ -f "$BUILD_DIR/openssh/sbin/sshd" ]; then
@@ -860,6 +863,7 @@ export PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
 export HISTFILE=$HOME/.sh_history
 export HISTSIZE=1000
 export TERM=xterm
+export TERMINFO=/usr/share/terminfo
 alias ls='ls --color=auto'
 alias ll='ls -al'
 alias la='ls -A'

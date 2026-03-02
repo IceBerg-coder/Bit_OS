@@ -118,8 +118,8 @@ build_ncurses() {
     ./configure --host="$TARGET" --prefix="$SYSROOT" \
         --without-shared --without-tests --without-progs --without-manpages \
         --without-debug --enable-widec \
-        --with-default-terminfo-dir="$SYSROOT/share/terminfo" \
-        --with-terminfo-dirs="$SYSROOT/share/terminfo"
+        --with-default-terminfo-dir="/usr/share/terminfo" \
+        --with-terminfo-dirs="/usr/share/terminfo:/etc/terminfo"
     make
     # Override ticdir so run_tic.sh writes terminfo to our sysroot, not /usr/share
     make install ticdir="$SYSROOT/share/terminfo"
