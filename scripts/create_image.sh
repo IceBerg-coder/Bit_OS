@@ -285,13 +285,8 @@ chmod +x etc/init.d/rcS
 
 log_info "Creating MOTD and profile..."
 cat << 'EOF' > etc/motd
-
-   ____  _ _   ____   _____ 
-  | __ )(_) |_/ __ \ / ___/ 
-  |  _ \| | __/ / / / \__ \  
-  | |_) | | |_/ /_/ / ___/ / 
-  |____/|_|\__\____/ /____/  
-
+Welcome to BitOS Professional Edition
+Type 'bit_info' for system info, 'bit_pkg available' for packages.
 EOF
 
 cat << 'EOF' > etc/profile
@@ -437,7 +432,8 @@ bit_install() {
     umount /mnt
 }
 
-[ -f /etc/motd ] && cat /etc/motd
+# Show system info on login
+bit_info
 EOF
 
 log_info "Creating legacy init symlink..."
