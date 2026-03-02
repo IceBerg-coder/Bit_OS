@@ -1,0 +1,87 @@
+#!/bin/sh
+# bit-files: File browser / manager for BitOS
+C0='\033[0m'; C1='\033[1;32m'; C2='\033[1;34m'; C3='\033[1;33m'; CR='\033[1;31m'; C4='\033[1;36m'; CM='\033[1;35m'
+
+DIR="${1:-$PWD}"
+
+usage() {
+    printf "${C2}bit-files${C0} - BitOS file browser\n"
+    printf "  ${C4}bit-files [dir]${C0}               Browse directory\n"
+    printf "  ${C4}bit-files view <file>${C0}          View file contents\n"
+    printf "  ${C4}bit-files info <file>${C0}          File/dir details\n"
+    printf "  ${C4}bit-files find <name>${C0}          Find files by name\n"
+    printf "  ${C4}bit-files size <dir>${C0}           Show directory sizes\n"
+}
+
+# Color by file type
+colorname() {
+    f="$1"
+    if [ -d "$f" ];       then printf "${C2}%s/${C0}" "$f"
+    elif [ -x "$f" ];     then printf "${C1}%s*${C0}"  "$f"
+    elif [ -L "$f" ];     then printf "${C4}%s@${C0}"  "$f"
+    else                       printf "%s"  "$f"
+    fi
+}
+
+case "$1" in
+    "view")
+        [ -z "$2" ] && usage && exit 1
+        [ ! -f "$2" ] && printf "${CR}Not a file: $2${C0}\n" && exit 1
+        LINES=$(wc -l < "$2")
+        SIZE=$(wc -c < "$2")
+        printf "${C2}=== $2 (%d lines, %d bytes) ===${C0}\n" "$LINES" "$SIZE"
+        cat "$2"
+        ;;
+    "info")
+        [ -z "$2" ] && usage && exit 1
+        [ ! -e "$2" ] && printf "${CR}Not found: $2${C0}\n" && exit 1
+        printf "${C2}--- File Info ---${C0}\n"
+        ls -la "$2"
+        if [ -f "$2" ]; then
+            printf "Lines:  %d\n" "$(wc -l < "$2" 2>/dev/null)"
+            printf "Size:   %d bytes\n" "$(wc -c < "$2" 2>/dev/null)"
+            printf "Type:   %s\n" "$(head -c4 "$2" 2>/dev/null | cat -v)"
+        elif [ -d "$2" ]; then
+            printf "Items:  %d\n" "$(ls "$2" 2>/dev/null | wc -l)"
+        fi
+        ;;
+    "find")
+        [ -z "$2" ] && usage && exit 1
+        printf "${C2}=== Searching for '%s' ===${C0}\n" "$2"
+        find / -name "*${2}*" 2>/dev/null | grep -v '/proc\|/sys' | while read f; do
+            ls -ld "$f" 2>/dev/null | awk -v f="$f" '{printf "  %s %s %s %s\n",$1,$3,$4,f}'
+        done
+        ;;
+    "size")
+        TARGET="${2:-.}"
+        printf "${C2}=== Directory sizes in %s ===${C0}\n" "$TARGET"
+        for d in "$TARGET"/*/; do
+            [ -d "$d" ] || continue
+            KB=$(du -sk "$d" 2>/dev/null | awk '{print $1}')
+            if [ "$KB" -gt 1024 ] 2>/dev/null; then
+                printf "  %6.1f MB  %s\n" "$(echo "$KB" | awk '{printf "%.1f",$1/1024}')" "$d"
+            else
+                printf "  %6d KB  %s\n" "$KB" "$d"
+            fi
+        done | sort -rn
+        ;;
+    *)
+        DIR="${1:-$PWD}"
+        [ ! -d "$DIR" ] && printf "${CR}Not a directory: $DIR${C0}\n" && usage && exit 1
+        printf "${C2}========================================${C0}\n"
+        printf "${C2} Directory: %s${C0}\n" "$DIR"
+        printf "${C2}========================================${C0}\n"
+        printf "${C4}%-12s %-8s %-8s %s${C0}\n" "Permissions" "Size" "Owner" "Name"
+        printf "${C3}%-12s %-8s %-8s %s${C0}\n" "------------" "--------" "--------" "----"
+        ls -la "$DIR" 2>/dev/null | grep -v '^total\|^\.' | while read perm links owner grp size rest; do
+            name=$(echo "$rest" | awk '{print $NF}')
+            printf "%-12s %6s  %-8s " "$perm" "$size" "$owner"
+            colorname "$DIR/$name"
+            printf "\n"
+        done
+        printf "${C2}----------------------------------------${C0}\n"
+        ITEMS=$(ls "$DIR" 2>/dev/null | wc -l)
+        printf "Total items: ${C1}%d${C0}  |  " "$ITEMS"
+        printf "Usage: ${C4}bit-files view|info|find|size${C0}\n"
+        ;;
+esac

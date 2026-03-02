@@ -1,0 +1,55 @@
+#!/bin/sh
+# bit-update: Update all GitHub-installed BitOS packages
+C0='\033[0m'; C1='\033[1;32m'; C2='\033[1;34m'; C3='\033[1;33m'; CR='\033[1;31m'
+
+PKG_DB="/etc/bit_pkg.db"
+REPO_URL="https://raw.githubusercontent.com/IceBerg-coder/Bit_OS/main/pkgs"
+
+printf "${C2}========================================${C0}\n"
+printf "${C2}       BitOS Package Updater            ${C0}\n"
+printf "${C2}========================================${C0}\n"
+
+if [ ! -s "$PKG_DB" ]; then
+    printf "${CR}No packages installed (empty db: $PKG_DB)${C0}\n"
+    exit 0
+fi
+
+# Check connectivity first
+if ! wget -q --spider --no-check-certificate "$REPO_URL/packages.list" 2>/dev/null; then
+    printf "${CR}[!] Cannot reach GitHub. Check network.${C0}\n"
+    exit 1
+fi
+
+UPDATED=0
+FAILED=0
+SKIPPED=0
+
+while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    name=$(echo "$line" | awk '{print $1}')
+    src=$(echo "$line"  | awk '{print $2}')
+
+    if [ "$src" = "(builtin)" ]; then
+        printf "  ${C3}SKIP${C0}  %-20s (built-in applet)\n" "$name"
+        SKIPPED=$((SKIPPED + 1))
+        continue
+    fi
+
+    printf "  ${C2}UPD ${C0}  %-20s ..." "$name"
+    wget -q --no-check-certificate "$REPO_URL/$name" -O "/usr/bin/${name}.tmp" 2>/dev/null
+    if [ $? -eq 0 ] && [ -s "/usr/bin/${name}.tmp" ]; then
+        mv "/usr/bin/${name}.tmp" "/usr/bin/$name"
+        chmod +x "/usr/bin/$name"
+        printf " ${C1}OK${C0}\n"
+        UPDATED=$((UPDATED + 1))
+    else
+        rm -f "/usr/bin/${name}.tmp"
+        printf " ${CR}FAIL${C0}\n"
+        FAILED=$((FAILED + 1))
+    fi
+done < "$PKG_DB"
+
+printf "${C2}----------------------------------------${C0}\n"
+printf "  Updated: ${C1}%d${C0}  Skipped: ${C3}%d${C0}  Failed: ${CR}%d${C0}\n" \
+    "$UPDATED" "$SKIPPED" "$FAILED"
+printf "${C2}========================================${C0}\n"

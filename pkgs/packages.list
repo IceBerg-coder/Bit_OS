@@ -5,3 +5,8 @@ bit-sysinfo  1.0    Detailed CPU, memory, disk and network info
 bit-netinfo  1.0    Network diagnostics - interfaces, routes, connectivity tests
 bit-monitor  1.0    Live system monitor with CPU/mem/process view (Ctrl+C to exit)
 bit-diskinfo 1.0    Disk and filesystem usage with visual bar charts
+bit-update   1.0    Update all installed GitHub packages at once
+bit-ps       1.0    Process manager with per-process info and kill support
+bit-log      1.0    Log viewer/manager - view, tail, clear system logs
+bit-bench    1.0    CPU and memory benchmark tool
+bit-files    1.0    File browser with view, find, info, size commands

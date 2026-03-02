@@ -12,7 +12,17 @@ cp -rv "$SRC_DIR/busybox-$BUSYBOX_VERSION/_install/"* .
 
 log_info "Creating standard Linux directory structure..."
 mkdir -pv dev proc sys tmp etc home bin sbin usr/bin usr/sbin etc/init.d lib/modules/6.6.15
-mkdir -pv var/log var/run var/spool/cron/crontabs etc/rcS.d var/www
+mkdir -pv var/log var/run var/spool/cron/crontabs etc/rcS.d var/www etc/dropbear
+
+log_info "Copying Dropbear SSH server..."
+if [ -f "$BUILD_DIR/dropbear/sbin/dropbear" ]; then
+    cp "$BUILD_DIR/dropbear/sbin/dropbear"    usr/sbin/dropbear
+    cp "$BUILD_DIR/dropbear/bin/dropbearkey"  usr/bin/dropbearkey
+    chmod +x usr/sbin/dropbear usr/bin/dropbearkey
+    log_info "Dropbear installed: $(ls -lh usr/sbin/dropbear)"
+else
+    log_err "Dropbear not found! Run: bash scripts/build_dropbear.sh first"
+fi
 
 log_info "Creating etc/inittab..."
 cat << 'EOF' > etc/inittab
@@ -207,28 +217,37 @@ EOF
 cat << 'EOF' > etc/rcS.d/S40-firewall
 #!/bin/sh
 echo "Applying basic firewall rules..."
-# Accept loopback
 iptables -A INPUT -i lo -j ACCEPT
-# Allow established/related connections
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-# Allow SSH (23/telnet) and HTTP (80)
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
 iptables -A INPUT -p tcp --dport 23 -j ACCEPT
 iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-# Allow ICMP (ping)
 iptables -A INPUT -p icmp -j ACCEPT
-# Drop everything else
 iptables -A INPUT -j DROP
 echo "Firewall rules applied."
 EOF
 chmod +x etc/rcS.d/S40-firewall
 
-cat << 'EOF' > etc/rcS.d/S50-telnetd
+cat << 'EOF' > etc/rcS.d/S50-sshd
+#!/bin/sh
+echo "Generating SSH host keys (if needed)..."
+[ ! -f /etc/dropbear/dropbear_rsa_host_key ] && \
+    dropbearkey -t rsa -s 2048 -f /etc/dropbear/dropbear_rsa_host_key >/dev/null 2>&1
+[ ! -f /etc/dropbear/dropbear_ecdsa_host_key ] && \
+    dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key >/dev/null 2>&1
+echo "Starting SSH server on port 22..."
+dropbear -p 22 -R -B -P /var/run/dropbear.pid
+echo "SSH server started. Connect: ssh root@<ip>"
+EOF
+chmod +x etc/rcS.d/S50-sshd
+
+cat << 'EOF' > etc/rcS.d/S51-telnetd
 #!/bin/sh
 echo "Starting Telnet server on port 23..."
 telnetd -b 0.0.0.0:23 -l /bin/login
 echo "Telnet server started."
 EOF
-chmod +x etc/rcS.d/S50-telnetd
+chmod +x etc/rcS.d/S51-telnetd
 
 cat << 'EOF' > etc/rcS.d/S50-httpd
 #!/bin/sh

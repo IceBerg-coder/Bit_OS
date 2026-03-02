@@ -1,0 +1,67 @@
+#!/bin/sh
+# bit-bench: CPU and memory benchmark for BitOS
+C0='\033[0m'; C1='\033[1;32m'; C2='\033[1;34m'; C3='\033[1;33m'; C4='\033[1;36m'; CR='\033[1;31m'
+
+printf "${C2}========================================${C0}\n"
+printf "${C2}       BitOS System Benchmark           ${C0}\n"
+printf "${C2}========================================${C0}\n"
+
+CPU=$(grep 'model name' /proc/cpuinfo 2>/dev/null | head -1 | cut -d: -f2 | sed 's/^ //')
+CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
+MEM=$(grep MemTotal /proc/meminfo | awk '{printf "%d MB", $2/1024}')
+printf "${C4}CPU:${C0} %s (%s cores)\n" "$CPU" "$CPUS"
+printf "${C4}RAM:${C0} %s\n\n" "$MEM"
+
+# --- CPU Benchmark: integer arithmetic ---
+printf "${C3}[1/4] CPU Integer Benchmark...${C0}\n"
+T_START=$(date +%s%N 2>/dev/null || date +%s)
+I=0
+while [ $I -lt 50000 ]; do
+    I=$((I + 1))
+done
+T_END=$(date +%s%N 2>/dev/null || date +%s)
+if echo "$T_START" | grep -q '[0-9]\{10,\}'; then
+    MS=$(( (T_END - T_START) / 1000000 ))
+    printf "  50,000 iterations: ${C1}%d ms${C0}\n" "$MS"
+else
+    printf "  50,000 iterations: ${C1}done${C0} (nanosecond timer unavailable)\n"
+fi
+
+# --- CPU Benchmark: string operations ---
+printf "${C3}[2/4] CPU String/Shell Benchmark...${C0}\n"
+T_START=$(date +%s)
+COUNT=0
+while [ $COUNT -lt 1000 ]; do
+    echo "benchmark_test_$COUNT" | grep -c "bench" >/dev/null
+    COUNT=$((COUNT + 1))
+done
+T_END=$(date +%s)
+ELAPSED=$((T_END - T_START))
+printf "  1,000 grep ops: ${C1}~%d sec${C0}\n" "$ELAPSED"
+
+# --- Memory Benchmark: write speed via /tmp ---
+printf "${C3}[3/4] Memory/Tmpfs Write Benchmark...${C0}\n"
+TMPF="/tmp/bit_bench_$$"
+T_START=$(date +%s)
+dd if=/dev/zero of="$TMPF" bs=1M count=16 2>/dev/null
+T_END=$(date +%s)
+ELAPSED=$((T_END - T_START))
+SIZE=16
+[ $ELAPSED -eq 0 ] && ELAPSED=1
+SPEED=$((SIZE / ELAPSED))
+rm -f "$TMPF"
+printf "  Write 16MB to tmpfs: ${C1}~%d MB/s${C0}\n" "$SPEED"
+
+# --- Disk read benchmark ---
+printf "${C3}[4/4] Kernel Read Benchmark...${C0}\n"
+T_START=$(date +%s)
+BYTES=$(dd if=/proc/sys/kernel/hostname of=/dev/null bs=1 2>&1 | grep -o '[0-9]* bytes' | head -1)
+wc -c /proc/cpuinfo >/dev/null 2>&1
+wc -c /proc/meminfo >/dev/null 2>&1
+T_END=$(date +%s)
+printf "  /proc read ops: ${C1}done${C0}\n"
+
+printf "\n${C2}========================================${C0}\n"
+printf "${C1}Benchmark complete.${C0}\n"
+printf "${C4}Load during test: $(awk '{print $1,$2,$3}' /proc/loadavg)${C0}\n"
+printf "${C2}========================================${C0}\n"

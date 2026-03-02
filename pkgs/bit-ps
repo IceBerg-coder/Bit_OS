@@ -1,0 +1,51 @@
+#!/bin/sh
+# bit-ps: Interactive process manager for BitOS
+C0='\033[0m'; C1='\033[1;32m'; C2='\033[1;34m'; C3='\033[1;33m'; CR='\033[1;31m'; C4='\033[1;36m'
+
+# If a PID argument is given, kill it
+if [ -n "$1" ]; then
+    SIG=${2:-15}
+    if kill -$SIG "$1" 2>/dev/null; then
+        printf "${C1}Sent signal %s to PID %s${C0}\n" "$SIG" "$1"
+    else
+        printf "${CR}Failed to signal PID %s (not found or no permission)${C0}\n" "$1"
+    fi
+    exit 0
+fi
+
+printf "${C2}========================================${C0}\n"
+printf "${C2}       BitOS Process Manager            ${C0}\n"
+printf "${C2}========================================${C0}\n"
+printf "${C4}Usage: bit-ps [PID] [signal]  to kill a process${C0}\n"
+printf "${C4}       bit-ps 1234 9          to force-kill PID 1234${C0}\n"
+printf "${C2}----------------------------------------${C0}\n"
+
+# System summary
+MEM_TOTAL=$(grep MemTotal     /proc/meminfo | awk '{print $2}')
+MEM_AVAIL=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+MEM_USED=$(( (MEM_TOTAL - MEM_AVAIL) * 100 / MEM_TOTAL ))
+LOAD=$(awk '{print $1}' /proc/loadavg)
+PROCS=$(ls /proc | grep -c '^[0-9]')
+
+printf "${C3}Load: %-6s  Mem: %d%%  Processes: %d${C0}\n\n" "$LOAD" "$MEM_USED" "$PROCS"
+printf "${C2}%-7s %-10s %-6s %-6s %s${C0}\n" "PID" "USER" "STAT" "VSZ" "COMMAND"
+printf "${C3}%-7s %-10s %-6s %-6s %s${C0}\n" "-------" "----------" "------" "------" "-------"
+
+# Read process info from /proc
+for pid in $(ls /proc | grep '^[0-9]' | sort -n); do
+    [ -f "/proc/$pid/status" ] || continue
+    name=$(grep '^Name:' /proc/$pid/status 2>/dev/null | awk '{print $2}')
+    state=$(grep '^State:' /proc/$pid/status 2>/dev/null | awk '{print $2}')
+    vsz=$(grep '^VmRSS:' /proc/$pid/status 2>/dev/null | awk '{printf "%dK", $2}')
+    uid=$(grep '^Uid:' /proc/$pid/status 2>/dev/null | awk '{print $2}')
+    # Resolve uid to username
+    user=$(awk -F: -v uid="$uid" '$3==uid{print $1;exit}' /etc/passwd 2>/dev/null)
+    user=${user:-$uid}
+    cmdline=$(cat /proc/$pid/cmdline 2>/dev/null | tr '\0' ' ' | cut -c1-40)
+    [ -z "$cmdline" ] && cmdline="[$name]"
+    printf "%-7s %-10s %-6s %-6s %s\n" "$pid" "$user" "$state" "${vsz:-?}" "$cmdline"
+done | head -30
+
+TOTAL=$(ls /proc | grep -c '^[0-9]')
+printf "\n${C3}Showing up to 30 of $TOTAL processes. Use 'bit-ps <PID>' to kill.${C0}\n"
+printf "${C2}========================================${C0}\n"
