@@ -1,16 +1,20 @@
 # BitOS Package Repository
 # Format: name  version  description
-bit-hello    1.0    BitOS SDK example / hello world script
-bit-sysinfo  1.0    Detailed CPU, memory, disk and network info
-bit-netinfo  1.0    Network diagnostics - interfaces, routes, connectivity tests
-bit-monitor  1.0    Live system monitor with CPU/mem/process view (Ctrl+C to exit)
-bit-diskinfo 1.0    Disk and filesystem usage with visual bar charts
-bit-update   1.0    Update all installed GitHub packages at once
-bit-ps       1.0    Process manager with per-process info and kill support
-bit-log      1.0    Log viewer/manager - view, tail, clear system logs
-bit-bench    1.0    CPU and memory benchmark tool
-bit-files    1.0    File browser with view, find, info, size commands
-bit-editor   1.0    Text file editor with vi backend and file browser
-bit-net      1.0    Network toolkit - get, dns, ping, scan, speed, trace
-bit-backup   1.0    Backup and restore /etc and /home to /var/backup
-bit-cron     1.0    Cron job manager - list, add, remove, edit jobs
+bit-hello        1.1    BitOS SDK example / hello world script
+bit-sysinfo      1.1    Detailed CPU, memory, disk and network info
+bit-netinfo      1.1    Network diagnostics - interfaces, routes, connectivity tests
+bit-monitor      1.1    Live system monitor with CPU/mem/process view (Ctrl+C to exit)
+bit-diskinfo     1.1    Disk and filesystem usage with visual bar charts
+bit-update       1.1    Update all installed GitHub packages at once
+bit-ps           1.1    Process manager with per-process info and kill support
+bit-log          1.1    Log viewer/manager - view, tail, clear system logs
+bit-bench        1.1    CPU and memory benchmark tool
+bit-files        1.1    File browser with view, find, info, size commands
+bit-editor       1.1    Text file editor with vi backend and file browser
+bit-net          1.1    Network toolkit - get, dns, ping, scan, speed, trace
+bit-backup       1.1    Backup and restore /etc and /home to /var/backup
+bit-cron         1.1    Cron job manager - list, add, remove, edit jobs
+bit-firewall     1.0    Firewall manager TUI - allow/block ports, view rules, reset
+bit-ssl          1.0    TLS certificate generator and HTTPS manager
+bit-users        1.0    Full user management TUI - add, delete, passwd, info
+bit-containers   1.0    Chroot container manager - create, exec, start, stop

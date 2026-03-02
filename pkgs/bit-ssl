@@ -1,0 +1,112 @@
+#!/bin/sh
+# bit-ssl: TLS certificate generator and manager for BitOS
+# Usage: bit-ssl [gen|info|install|list|verify]
+
+RED='\033[0;31m'; GRN='\033[0;32m'; YEL='\033[1;33m'; BLU='\033[1;34m'; NC='\033[0m'
+CERT_DIR="/etc/ssl/bitos"
+
+_need_openssl() {
+    command -v openssl >/dev/null 2>&1 || { echo -e "${RED}[!] openssl not found${NC}"; exit 1; }
+}
+
+ssl_gen() {
+    _need_openssl
+    mkdir -p "$CERT_DIR"
+    NAME="${1:-bitos}"
+    DAYS="${2:-365}"
+    KEYFILE="$CERT_DIR/${NAME}.key"
+    CRTFILE="$CERT_DIR/${NAME}.crt"
+    PEMFILE="$CERT_DIR/${NAME}.pem"
+
+    echo -e "${BLU}[*] Generating self-signed cert for '$NAME' (${DAYS} days)...${NC}"
+    echo -n "Common Name / hostname [$(hostname)]: "
+    read -r CN; [ -z "$CN" ] && CN=$(hostname)
+    echo -n "Organization [BitOS]: "
+    read -r ORG; [ -z "$ORG" ] && ORG="BitOS"
+
+    openssl req -x509 -nodes -newkey rsa:2048 \
+        -keyout "$KEYFILE" -out "$CRTFILE" -days "$DAYS" \
+        -subj "/CN=$CN/O=$ORG/C=US" 2>/dev/null
+
+    if [ $? -eq 0 ]; then
+        cat "$CRTFILE" "$KEYFILE" > "$PEMFILE"
+        chmod 600 "$KEYFILE" "$PEMFILE"
+        echo -e "${GRN}[+] Certificate generated:${NC}"
+        echo -e "    Key:  $KEYFILE"
+        echo -e "    Cert: $CRTFILE"
+        echo -e "    PEM:  $PEMFILE (combined, for socat/stunnel)"
+        ssl_info "$NAME"
+    else
+        echo -e "${RED}[!] Certificate generation failed${NC}"
+    fi
+}
+
+ssl_info() {
+    _need_openssl
+    NAME="${1:-bitos}"
+    CRTFILE="$CERT_DIR/${NAME}.crt"
+    [ ! -f "$CRTFILE" ] && echo -e "${RED}[!] No cert found: $CRTFILE${NC}" && return 1
+    echo -e "${BLU}=== Certificate: $NAME ===${NC}"
+    openssl x509 -in "$CRTFILE" -noout -subject -issuer -dates -fingerprint 2>/dev/null | \
+        sed 's/subject=/Subject: /; s/issuer=/Issuer:  /; s/notBefore=/Valid From: /; s/notAfter=/Valid To:   /'
+}
+
+ssl_list() {
+    echo -e "${BLU}=== Certificates in $CERT_DIR ===${NC}"
+    if [ ! -d "$CERT_DIR" ] || [ -z "$(ls $CERT_DIR/*.crt 2>/dev/null)" ]; then
+        echo "(none — run: bit-ssl gen)"
+        return 0
+    fi
+    for CRT in "$CERT_DIR"/*.crt; do
+        NAME=$(basename "$CRT" .crt)
+        EXPIRY=$(openssl x509 -in "$CRT" -noout -dates 2>/dev/null | grep notAfter | cut -d= -f2)
+        CN=$(openssl x509 -in "$CRT" -noout -subject 2>/dev/null | grep -o 'CN=[^/,]*' | cut -d= -f2)
+        printf "  ${GRN}%-20s${NC}  CN=%-24s  Expires: %s\n" "$NAME" "$CN" "$EXPIRY"
+    done
+}
+
+ssl_install() {
+    NAME="${1:-bitos}"
+    PEMFILE="$CERT_DIR/${NAME}.pem"
+    CRTFILE="$CERT_DIR/${NAME}.crt"
+    [ ! -f "$PEMFILE" ] && echo -e "${RED}[!] No PEM found. Run: bit-ssl gen $NAME${NC}" && return 1
+
+    echo -e "${BLU}[*] Installing HTTPS wrapper on port 443 -> 80...${NC}"
+    # Check if socat is available
+    if command -v socat >/dev/null 2>&1; then
+        killall socat 2>/dev/null
+        socat OPENSSL-LISTEN:443,cert="$PEMFILE",verify=0,reuseaddr,fork \
+            TCP:127.0.0.1:80 &
+        echo -e "${GRN}[+] HTTPS running: https://$(ip addr show eth0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1):443${NC}"
+        echo "    (via socat, PEM: $PEMFILE)"
+    elif command -v openssl >/dev/null 2>&1; then
+        echo -e "${YEL}[!] socat not found. Use openssl s_server for testing:${NC}"
+        echo "    openssl s_server -accept 443 -cert $CRTFILE -key $CERT_DIR/${NAME}.key -WWW"
+    else
+        echo -e "${RED}[!] Neither socat nor openssl available${NC}"
+    fi
+}
+
+ssl_verify() {
+    _need_openssl
+    HOST="${1:-localhost}"; PORT="${2:-443}"
+    echo -e "${BLU}[*] Checking TLS on ${HOST}:${PORT}...${NC}"
+    echo | openssl s_client -connect "${HOST}:${PORT}" 2>/dev/null | \
+        openssl x509 -noout -subject -dates -fingerprint 2>/dev/null || \
+        echo -e "${RED}[!] Could not connect to ${HOST}:${PORT}${NC}"
+}
+
+case "$1" in
+    gen|generate)   shift; ssl_gen "$@" ;;
+    info)           shift; ssl_info "$@" ;;
+    list)           ssl_list ;;
+    install)        shift; ssl_install "$@" ;;
+    verify)         shift; ssl_verify "$@" ;;
+    *)
+        echo "Usage: bit-ssl [gen|info|list|install|verify]"
+        echo "  bit-ssl gen [name] [days]  - generate self-signed cert"
+        echo "  bit-ssl list               - list all certs"
+        echo "  bit-ssl info [name]        - show cert details"
+        echo "  bit-ssl install [name]     - start HTTPS on port 443"
+        echo "  bit-ssl verify [host:port] - verify remote TLS cert" ;;
+esac

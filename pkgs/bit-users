@@ -1,0 +1,138 @@
+#!/bin/sh
+# bit-users: Full user management TUI for BitOS
+# Usage: bit-users [list|add|del|passwd|info|menu]
+
+RED='\033[0;31m'; GRN='\033[0;32m'; YEL='\033[1;33m'; BLU='\033[1;34m'; NC='\033[0m'
+
+u_list() {
+    echo -e "${BLU}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLU}║                   User Accounts                         ║${NC}"
+    echo -e "${BLU}╠══════════════════════════════════════════════════════════╣${NC}"
+    printf "  ${YEL}%-16s %-6s %-6s %-20s %s${NC}\n" "USERNAME" "UID" "GID" "HOME" "SHELL"
+    echo -e "${BLU}  ──────────────────────────────────────────────────────── ${NC}"
+    while IFS=: read -r U P UID GID GECOS HOME SHELL; do
+        if [ "$UID" -ge 1000 ] 2>/dev/null && [ "$UID" -lt 65534 ] 2>/dev/null; then
+            # Check if user has a password set
+            PWSTAT=$(grep "^${U}:" /etc/shadow 2>/dev/null | cut -d: -f2)
+            LOCKED=""
+            [ -z "$PWSTAT" ] || [ "$PWSTAT" = "!" ] || [ "$PWSTAT" = "*" ] && LOCKED=" ${RED}[no pw]${NC}"
+            printf "  ${GRN}%-16s${NC} %-6s %-6s %-20s %s%s\n" "$U" "$UID" "$GID" "$HOME" "$SHELL" "$LOCKED"
+        fi
+    done < /etc/passwd
+    echo ""
+    echo -e "${BLU}  System accounts:${NC}"
+    while IFS=: read -r U P UID GID GECOS HOME SHELL; do
+        [ "$UID" -lt 1000 ] 2>/dev/null && [ "$UID" -ge 0 ] 2>/dev/null && \
+            printf "  ${YEL}%-16s${NC} uid=%-6s %s\n" "$U" "$UID" "$SHELL"
+    done < /etc/passwd | head -10
+}
+
+u_add() {
+    echo -e "${BLU}=== Add New User ===${NC}"
+    echo -n "Username: "; read -r UNAME
+    [ -z "$UNAME" ] && echo "Cancelled." && return 0
+    echo -n "UID (leave blank for auto): "; read -r UNUM
+    if [ -z "$UNUM" ]; then
+        UNUM=$(awk -F: '$3>=1000 && $3<65534{print $3}' /etc/passwd | sort -n | tail -1)
+        UNUM=$(( ${UNUM:-999} + 1 ))
+    fi
+    grep -q "^${UNAME}:" /etc/passwd && echo -e "${RED}[!] User $UNAME already exists${NC}" && return 1
+    echo "${UNAME}:x:${UNUM}:${UNUM}::/home/${UNAME}:/bin/sh" >> /etc/passwd
+    echo "${UNAME}:x:${UNUM}:" >> /etc/group
+    echo "${UNAME}:!:19000:0:99999:7:::" >> /etc/shadow
+    mkdir -p "/home/${UNAME}" && chmod 700 "/home/${UNAME}"
+    echo -e "${GRN}[+] User $UNAME created (uid=$UNUM)${NC}"
+    echo -n "Set password now? (y/N): "; read -r DOPASS
+    [ "$DOPASS" = "y" ] && passwd "$UNAME"
+}
+
+u_del() {
+    echo -e "${BLU}=== Delete User ===${NC}"
+    u_list 2>/dev/null | grep -v "System\|system\|no pw\|UID\|──\|╔\|╚\|╠\|║" | grep -v "^$"
+    echo -n "Username to delete: "; read -r UNAME
+    [ -z "$UNAME" ] && echo "Cancelled." && return 0
+    grep -q "^${UNAME}:" /etc/passwd || { echo -e "${RED}[!] User $UNAME not found${NC}"; return 1; }
+    echo -n "Delete $UNAME? (y/N): "; read -r C; [ "$C" != "y" ] && echo "Cancelled." && return 0
+    sed -i "/^${UNAME}:/d" /etc/passwd /etc/shadow /etc/group 2>/dev/null
+    echo -e "${YEL}[-] User $UNAME removed from system files${NC}"
+    echo -n "Delete home directory /home/$UNAME? (y/N): "; read -r RH
+    [ "$RH" = "y" ] && rm -rf "/home/$UNAME" && echo -e "${YEL}[-] /home/$UNAME deleted${NC}"
+}
+
+u_passwd() {
+    NAME="${1:-}"
+    if [ -z "$NAME" ]; then
+        echo -n "Username (blank for current user): "; read -r NAME
+    fi
+    [ -z "$NAME" ] && NAME=$(id -un)
+    grep -q "^${NAME}:" /etc/passwd || { echo -e "${RED}[!] User $NAME not found${NC}"; return 1; }
+    passwd "$NAME"
+}
+
+u_info() {
+    NAME="${1:-}"
+    if [ -z "$NAME" ]; then
+        echo -n "Username: "; read -r NAME
+    fi
+    grep -q "^${NAME}:" /etc/passwd || { echo -e "${RED}[!] User $NAME not found${NC}"; return 1; }
+    echo -e "${BLU}=== User Info: $NAME ===${NC}"
+    IFS=: read -r U P UID GID GECOS HOME SHELL <<PWEOF
+$(grep "^${NAME}:" /etc/passwd)
+PWEOF
+    echo -e "  ${YEL}Username:${NC}  $U"
+    echo -e "  ${YEL}UID/GID:${NC}   $UID / $GID"
+    echo -e "  ${YEL}Home:${NC}      $HOME"
+    echo -e "  ${YEL}Shell:${NC}     $SHELL"
+    [ -d "$HOME" ] && HSIZE=$(du -sh "$HOME" 2>/dev/null | awk '{print $1}') && \
+        echo -e "  ${YEL}Home size:${NC} $HSIZE"
+    PWSTAT=$(grep "^${NAME}:" /etc/shadow 2>/dev/null | cut -d: -f2)
+    if [ -z "$PWSTAT" ] || [ "$PWSTAT" = "!" ] || [ "$PWSTAT" = "*" ]; then
+        echo -e "  ${YEL}Password:${NC}  ${RED}not set${NC}"
+    else
+        echo -e "  ${YEL}Password:${NC}  ${GRN}set${NC}"
+    fi
+    echo -e "  ${YEL}Groups:${NC}"
+    grep ":.*\b${NAME}\b" /etc/group 2>/dev/null | awk -F: '{print "    - "$1}'
+}
+
+u_menu() {
+    while true; do
+        echo ""
+        echo -e "${BLU}╔══════════════════════════════╗${NC}"
+        echo -e "${BLU}║    BitOS User Manager        ║${NC}"
+        echo -e "${BLU}╚══════════════════════════════╝${NC}"
+        echo -e "  ${GRN}1)${NC} List all users"
+        echo -e "  ${GRN}2)${NC} Add user"
+        echo -e "  ${RED}3)${NC} Delete user"
+        echo -e "  ${YEL}4)${NC} Change password"
+        echo -e "  ${YEL}5)${NC} User info"
+        echo -e "  ${RED}q)${NC} Quit"
+        echo -n "Choice: "; read -r OPT
+        case "$OPT" in
+            1) u_list ;;
+            2) u_add ;;
+            3) u_del ;;
+            4) u_passwd ;;
+            5) u_info ;;
+            q|Q) break ;;
+            *) echo "Invalid" ;;
+        esac
+    done
+}
+
+case "$1" in
+    list)           u_list ;;
+    add)            u_add ;;
+    del|delete)     u_del ;;
+    passwd)         shift; u_passwd "$@" ;;
+    info)           shift; u_info "$@" ;;
+    menu|"")        u_menu ;;
+    *)
+        echo "Usage: bit-users [list|add|del|passwd|info|menu]"
+        echo "  bit-users list         - list all accounts"
+        echo "  bit-users add          - add a new user"
+        echo "  bit-users del          - delete a user"
+        echo "  bit-users passwd [u]   - change password"
+        echo "  bit-users info [u]     - show user details"
+        echo "  bit-users menu         - interactive TUI" ;;
+esac

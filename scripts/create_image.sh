@@ -12,7 +12,7 @@ cp -rv "$SRC_DIR/busybox-$BUSYBOX_VERSION/_install/"* .
 
 log_info "Creating standard Linux directory structure..."
 mkdir -pv dev proc sys tmp etc home bin sbin usr/bin usr/sbin etc/init.d lib/modules/6.6.15
-mkdir -pv var/log var/run var/spool/cron/crontabs etc/rcS.d var/www etc/ssh lib/x86_64-linux-gnu lib64 var/empty run usr/lib/openssh usr/lib/x86_64-linux-gnu/xtables
+mkdir -pv var/log var/run var/spool/cron/crontabs etc/rcS.d var/www etc/ssh lib/x86_64-linux-gnu lib64 var/empty run usr/lib/openssh usr/lib/x86_64-linux-gnu/xtables etc/ssl/bitos var/containers
 
 log_info "Copying OpenSSH server..."
 if [ -f "$BUILD_DIR/openssh/sbin/sshd" ]; then
@@ -29,6 +29,37 @@ if [ -f "$BUILD_DIR/openssh/sbin/sshd" ]; then
     log_info "OpenSSH sshd installed: $(ls -lh usr/sbin/sshd)"
 else
     log_err "OpenSSH not found! Run: bash scripts/build_openssh.sh first"
+fi
+
+log_info "Copying bash-static..."
+if [ -f "/bin/bash-static" ]; then
+    cp /bin/bash-static bin/bash
+    chmod +x bin/bash
+    log_info "bash-static installed: $(ls -lh bin/bash)"
+else
+    log_info "bash-static not found, skipping (ash remains default)"
+fi
+
+log_info "Copying socat + openssl for HTTPS..."
+if [ -f "/usr/bin/socat1" ]; then
+    cp /usr/bin/socat1 usr/bin/socat
+    ln -sf /usr/bin/socat usr/bin/socat1
+    chmod +x usr/bin/socat
+    # Copy socat's shared lib dependencies
+    for lib in libssl.so.3 libcrypto.so.3 libwrap.so.0 libz.so.1 libzstd.so.1; do
+        src="/lib/x86_64-linux-gnu/$lib"
+        [ ! -f "$src" ] && src="/usr/lib/x86_64-linux-gnu/$lib"
+        [ -f "$src" ] && cp "$src" lib/x86_64-linux-gnu/ && echo "  + $lib"
+    done
+    log_info "socat installed: $(ls -lh usr/bin/socat)"
+else
+    log_info "socat not found — HTTPS will be skipped (run: sudo apt-get install socat)"
+fi
+
+if [ -f "/usr/bin/openssl" ]; then
+    cp /usr/bin/openssl usr/bin/openssl
+    chmod +x usr/bin/openssl
+    log_info "openssl installed: $(ls -lh usr/bin/openssl)"
 fi
 
 log_info "Copying iptables (legacy)..."
@@ -285,6 +316,7 @@ iptables -A INPUT -p tcp --dport 22 -m state --state NEW -m recent --update --se
 iptables -A INPUT -p tcp --dport 22 -j ACCEPT
 iptables -A INPUT -p tcp --dport 23 -j ACCEPT
 iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT
 iptables -A INPUT -p icmp -m limit --limit 10/s -j ACCEPT
 iptables -A INPUT -j DROP
 echo "Firewall rules applied (SSH rate-limiting active)."
@@ -331,6 +363,36 @@ httpd -p 80 -h /var/www -c /etc/httpd.conf
 echo "HTTP server started at http://$(hostname):80"
 EOF
 chmod +x etc/rcS.d/S50-httpd
+
+cat << 'EOF' > etc/rcS.d/S55-https
+#!/bin/sh
+# Start HTTPS via socat if cert exists
+CERT_DIR="/etc/ssl/bitos"
+PEM="$CERT_DIR/bitos.pem"
+if ! command -v socat >/dev/null 2>&1; then
+    echo "socat not found, skipping HTTPS"
+    exit 0
+fi
+if [ ! -f "$PEM" ]; then
+    echo "Generating self-signed TLS certificate..."
+    mkdir -p "$CERT_DIR"
+    HOSTNAME=$(hostname)
+    openssl req -x509 -nodes -newkey rsa:2048 \
+        -keyout "$CERT_DIR/bitos.key" \
+        -out "$CERT_DIR/bitos.crt" \
+        -days 3650 \
+        -subj "/CN=$HOSTNAME/O=BitOS/C=US" 2>/dev/null
+    cat "$CERT_DIR/bitos.crt" "$CERT_DIR/bitos.key" > "$PEM"
+    chmod 600 "$CERT_DIR/bitos.key" "$PEM"
+    echo "Certificate generated: $PEM"
+fi
+if [ -f "$PEM" ]; then
+    socat OPENSSL-LISTEN:443,cert="$PEM",verify=0,reuseaddr,fork \
+        TCP:127.0.0.1:80 &
+    echo "HTTPS server started on port 443 (socat -> httpd:80)"
+fi
+EOF
+chmod +x etc/rcS.d/S55-https
 
 # Create default web root
 mkdir -p var/www
@@ -483,9 +545,14 @@ chmod +x etc/init.d/rcS
 log_info "Creating MOTD and profile..."
 cat << 'EOF' > etc/motd
 Welcome to BitOS Professional Edition
-Type 'bit_info' for system info, 'bpm available' for packages.
-Type 'lsusers' to list accounts, 'adduser/deluser' to manage users.
-Dashboard: http://localhost:8180/dashboard.cgi
+  bit_info             - system info
+  bpm available        - browse 18 packages
+  svc status           - service manager
+  bit-firewall menu    - firewall TUI
+  bit-users menu       - user manager TUI
+  bit-containers list  - container manager
+Dashboard: http://localhost:80/dashboard.cgi
+   HTTPS: https://localhost:443/dashboard.cgi
 EOF
 
 cat << 'EOF' > etc/profile
@@ -752,36 +819,68 @@ chpasswd_user() {
 # bit-install: Simple HDD Installer
 bit_install() {
     TARGET_DEV="$1"
-    [ -z "$TARGET_DEV" ] && echo "Usage: bit_install /dev/vda (or /dev/sda)" && return 1
-    
-    echo -e "\e[1;31m!!! WARNING: THIS WILL WIPE ALL DATA ON $TARGET_DEV !!!\e[0m"
-    echo -n "Are you sure you want to proceed? (y/N): "
-    read -r CONFIRM
-    [ "$CONFIRM" != "y" ] && echo "Aborted." && return 1
+    [ -z "$TARGET_DEV" ] && echo "Usage: bit_install /dev/vdb" && return 1
+    [ ! -b "$TARGET_DEV" ] && echo -e "\e[1;31m[!] $TARGET_DEV is not a block device\e[0m" && return 1
 
-    echo -e "\e[1;34m[*] Partitioning $TARGET_DEV...\e[0m"
-    # Create a single primary bootable partition
-    echo -e "o\nn\np\n1\n\n\na\n1\nw" | fdisk "$TARGET_DEV" >/dev/null 2>&1
-    
-    echo -e "\e[1;34m[*] Formatting ${TARGET_DEV}1 as ext4...\e[0m"
-    mkfs.ext4 "${TARGET_DEV}1" >/dev/null 2>&1
-    
-    echo -e "\e[1;34m[*] Mounting ${TARGET_DEV}1 to /mnt...\e[0m"
-    mkdir -p /mnt
-    mount "${TARGET_DEV}1" /mnt
-    
-    echo -e "\e[1;34m[*] Installing System Files (Kernel & Initrd)...\e[0m"
-    mkdir -p /mnt/boot
-    # These paths come from the ISO/CD structure
-    cp /vmlinuz /mnt/boot/vmlinuz
-    cp /initramfs.cpio.gz /mnt/boot/initramfs.cpio.gz
-    
-    echo -e "\e[1;34m[*] Preparing persistence directory...\e[0m"
-    mkdir -p /mnt/home
-    
-    echo -e "\e[1;32m[+] Installation Complete!\e[0m"
-    echo "Note: To boot from this disk, ensure your bootloader (QEMU/VM) points to $TARGET_DEV."
-    umount /mnt
+    echo -e "\e[1;31m!!! WARNING: ALL DATA ON $TARGET_DEV WILL BE ERASED !!!\e[0m"
+    echo -e "Device info: $(fdisk -l $TARGET_DEV 2>/dev/null | head -3)"
+    echo -n "Type 'yes' to confirm: "
+    read -r CONFIRM
+    [ "$CONFIRM" != "yes" ] && echo "Aborted." && return 1
+
+    # --- Partition ---
+    echo -e "\e[1;34m[1/5] Partitioning $TARGET_DEV...\e[0m"
+    printf 'o\nn\np\n1\n\n\nw\n' | fdisk "$TARGET_DEV" >/dev/null 2>&1
+    sleep 1
+    # Determine partition name (vda->vda1, sda->sda1, nvme0n1->nvme0n1p1)
+    if echo "$TARGET_DEV" | grep -q "nvme"; then
+        PART="${TARGET_DEV}p1"
+    else
+        PART="${TARGET_DEV}1"
+    fi
+
+    # --- Format ---
+    echo -e "\e[1;34m[2/5] Formatting $PART as ext4...\e[0m"
+    mkfs.ext4 -L BitOS "$PART" >/dev/null 2>&1 || { echo -e "\e[1;31m[!] mkfs.ext4 failed\e[0m"; return 1; }
+
+    # --- Mount ---
+    echo -e "\e[1;34m[3/5] Mounting $PART...\e[0m"
+    mkdir -p /mnt/bitos_install
+    mount "$PART" /mnt/bitos_install || { echo -e "\e[1;31m[!] mount failed\e[0m"; return 1; }
+
+    # --- Copy System ---
+    echo -e "\e[1;34m[4/5] Copying system files...\e[0m"
+    mkdir -p /mnt/bitos_install/boot
+    # Kernel is at /boot/vmlinuz on ISO (ISOLINUX structure)
+    KERN=$(find /boot /mnt /cdrom /media -name "vmlinuz" 2>/dev/null | head -1)
+    INITRD=$(find /boot /mnt /cdrom /media -name "initramfs.cpio.gz" 2>/dev/null | head -1)
+    [ -z "$KERN" ]  && KERN="/vmlinuz"
+    [ -z "$INITRD" ] && INITRD="/initramfs.cpio.gz"
+    cp "$KERN" /mnt/bitos_install/boot/vmlinuz 2>/dev/null || \
+        { echo -e "\e[1;31m[!] Kernel not found at $KERN\e[0m"; umount /mnt/bitos_install; return 1; }
+    cp "$INITRD" /mnt/bitos_install/boot/initramfs.cpio.gz 2>/dev/null || \
+        { echo -e "\e[1;31m[!] Initrd not found at $INITRD\e[0m"; umount /mnt/bitos_install; return 1; }
+    mkdir -p /mnt/bitos_install/home
+
+    # --- Write boot config hint ---
+    cat > /mnt/bitos_install/boot/boot.txt << BOOTEOF
+BitOS Boot Parameters:
+  kernel: /boot/vmlinuz
+  initrd: /boot/initramfs.cpio.gz
+  cmdline: console=ttyS0 root=/dev/$( basename $PART ) rw
+
+To boot with QEMU:
+  qemu-system-x86_64 -kernel /boot/vmlinuz -initrd /boot/initramfs.cpio.gz \
+    -hda $TARGET_DEV -append "root=$PART rw console=ttyS0"
+BOOTEOF
+
+    umount /mnt/bitos_install
+    echo -e "\e[1;32m[5/5] Installation complete!\e[0m"
+    echo ""
+    echo -e "  Kernel:  $KERN -> /boot/vmlinuz"
+    echo -e "  Initrd:  $INITRD -> /boot/initramfs.cpio.gz"
+    echo -e "  Boot:    cat /mnt/bitos_install/boot/boot.txt"
+    echo -e "\e[1;33m  To boot without ISO, use kernel+initrd directly in QEMU.\e[0m"
 }
 
 # bit-setup: First-boot configuration wizard

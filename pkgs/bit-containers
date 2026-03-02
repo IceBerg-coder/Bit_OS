@@ -1,0 +1,123 @@
+#!/bin/sh
+# bit-containers: Lightweight chroot jail/container manager for BitOS
+# Usage: bit-containers [create|start|stop|exec|list|destroy]
+
+RED='\033[0;31m'; GRN='\033[0;32m'; YEL='\033[1;33m'; BLU='\033[1;34m'; NC='\033[0m'
+CONTAINER_DIR="/var/containers"
+
+_jail_exists() { [ -d "$CONTAINER_DIR/$1" ]; }
+_jail_running() { [ -f "$CONTAINER_DIR/$1/.pid" ] && kill -0 $(cat "$CONTAINER_DIR/$1/.pid") 2>/dev/null; }
+
+ct_list() {
+    echo -e "${BLU}=== BitOS Containers ===${NC}"
+    [ ! -d "$CONTAINER_DIR" ] && echo "(none — run: bit-containers create <name>)" && return 0
+    printf "  ${YEL}%-20s %-10s %-8s %s${NC}\n" "NAME" "STATUS" "PID" "SIZE"
+    echo "  ──────────────────────────────────────────"
+    for DIR in "$CONTAINER_DIR"/*/; do
+        [ ! -d "$DIR" ] && continue
+        NAME=$(basename "$DIR")
+        SIZE=$(du -sh "$DIR" 2>/dev/null | awk '{print $1}')
+        if _jail_running "$NAME"; then
+            PID=$(cat "$CONTAINER_DIR/$NAME/.pid" 2>/dev/null)
+            printf "  ${GRN}%-20s${NC} ${GRN}%-10s${NC} %-8s %s\n" "$NAME" "running" "$PID" "$SIZE"
+        else
+            printf "  ${YEL}%-20s${NC} ${RED}%-10s${NC} %-8s %s\n" "$NAME" "stopped" "-" "$SIZE"
+        fi
+    done
+}
+
+ct_create() {
+    [ -z "$1" ] && echo "Usage: bit-containers create <name>" && return 1
+    NAME="$1"
+    JAILDIR="$CONTAINER_DIR/$NAME"
+    _jail_exists "$NAME" && echo -e "${RED}[!] Container $NAME already exists${NC}" && return 1
+    echo -e "${BLU}[*] Creating container '$NAME'...${NC}"
+    mkdir -p "$JAILDIR"/{bin,sbin,usr/bin,usr/sbin,lib,lib64,etc,tmp,proc,sys,dev,root,var/log,home}
+    chmod 1777 "$JAILDIR/tmp"
+    # Copy BusyBox and create symlinks
+    cp /bin/busybox "$JAILDIR/bin/busybox"
+    "$JAILDIR/bin/busybox" --list 2>/dev/null | while read APP; do
+        ln -sf /bin/busybox "$JAILDIR/bin/$APP" 2>/dev/null
+    done
+    # Copy essential libs
+    for LIB in /lib/x86_64-linux-gnu/libc.so.* /lib64/ld-linux-x86-64.so.* \
+                /lib/x86_64-linux-gnu/libm.so.* /lib/x86_64-linux-gnu/libresolv.so.*; do
+        [ -f "$LIB" ] && cp "$LIB" "$JAILDIR/lib/" 2>/dev/null
+    done
+    [ -d /lib64 ] && cp /lib64/ld-linux-x86-64.so.* "$JAILDIR/lib64/" 2>/dev/null
+    # Minimal /etc
+    echo "127.0.0.1 localhost" > "$JAILDIR/etc/hosts"
+    echo "nameserver 8.8.8.8" > "$JAILDIR/etc/resolv.conf"
+    echo "root:x:0:0:root:/root:/bin/sh" > "$JAILDIR/etc/passwd"
+    echo "root::0:0:99999:7:::" > "$JAILDIR/etc/shadow"
+    echo "root:x:0:" > "$JAILDIR/etc/group"
+    echo -e "export PATH=/bin:/sbin:/usr/bin\nexport PS1='[$NAME]\\u# '" > "$JAILDIR/root/.profile"
+    echo "$NAME" > "$JAILDIR/etc/hostname"
+    echo -e "${GRN}[+] Container '$NAME' created at $JAILDIR${NC}"
+    echo -e "    Start: bit-containers start $NAME"
+}
+
+ct_start() {
+    [ -z "$1" ] && echo "Usage: bit-containers start <name>" && return 1
+    NAME="$1"
+    _jail_exists "$NAME" || { echo -e "${RED}[!] Container $NAME not found${NC}"; return 1; }
+    _jail_running "$NAME" && echo -e "${YEL}[!] Container $NAME already running${NC}" && return 0
+    JAILDIR="$CONTAINER_DIR/$NAME"
+    # Mount proc and dev
+    mount -t proc proc "$JAILDIR/proc" 2>/dev/null
+    mount --bind /dev "$JAILDIR/dev" 2>/dev/null
+    echo "started" > "$JAILDIR/.state"
+    echo $$ > "$JAILDIR/.pid"
+    echo -e "${GRN}[+] Container $NAME ready. Exec: bit-containers exec $NAME${NC}"
+}
+
+ct_exec() {
+    [ -z "$1" ] && echo "Usage: bit-containers exec <name> [cmd]" && return 1
+    NAME="$1"; shift; CMD="${@:-/bin/sh}"
+    _jail_exists "$NAME" || { echo -e "${RED}[!] Container $NAME not found${NC}"; return 1; }
+    JAILDIR="$CONTAINER_DIR/$NAME"
+    echo -e "${BLU}[*] Entering container '$NAME'...${NC}"
+    # Mount proc if needed
+    mountpoint -q "$JAILDIR/proc" 2>/dev/null || mount -t proc proc "$JAILDIR/proc" 2>/dev/null
+    chroot "$JAILDIR" $CMD
+}
+
+ct_stop() {
+    [ -z "$1" ] && echo "Usage: bit-containers stop <name>" && return 1
+    NAME="$1"
+    _jail_exists "$NAME" || { echo -e "${RED}[!] Container $NAME not found${NC}"; return 1; }
+    JAILDIR="$CONTAINER_DIR/$NAME"
+    umount "$JAILDIR/proc" 2>/dev/null
+    umount "$JAILDIR/dev" 2>/dev/null
+    rm -f "$JAILDIR/.pid" "$JAILDIR/.state"
+    echo -e "${YEL}[-] Container $NAME stopped${NC}"
+}
+
+ct_destroy() {
+    [ -z "$1" ] && echo "Usage: bit-containers destroy <name>" && return 1
+    NAME="$1"
+    _jail_exists "$NAME" || { echo -e "${RED}[!] Container $NAME not found${NC}"; return 1; }
+    _jail_running "$NAME" && ct_stop "$NAME"
+    echo -n "Destroy container $NAME? All data will be lost. (y/N): "
+    read -r C; [ "$C" != "y" ] && echo "Cancelled." && return 0
+    rm -rf "$CONTAINER_DIR/$NAME"
+    echo -e "${RED}[x] Container $NAME destroyed${NC}"
+}
+
+case "$1" in
+    list|ls|"")         ct_list ;;
+    create|new)         shift; ct_create "$@" ;;
+    start)              shift; ct_start "$@" ;;
+    exec|enter|shell)   shift; ct_exec "$@" ;;
+    stop)               shift; ct_stop "$@" ;;
+    destroy|rm|delete)  shift; ct_destroy "$@" ;;
+    *)
+        echo "Usage: bit-containers [list|create|start|exec|stop|destroy]"
+        echo "  bit-containers list            - list containers"
+        echo "  bit-containers create <name>   - create new container"
+        echo "  bit-containers start <name>    - mount proc/dev"
+        echo "  bit-containers exec <name>     - enter shell"
+        echo "  bit-containers exec <name> cmd - run command"
+        echo "  bit-containers stop <name>     - unmount filesystems"
+        echo "  bit-containers destroy <name>  - delete container" ;;
+esac
