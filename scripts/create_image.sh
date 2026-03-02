@@ -322,8 +322,12 @@ chmod +x etc/rcS.d/S51-telnetd
 cat << 'EOF' > etc/rcS.d/S50-httpd
 #!/bin/sh
 mkdir -p /var/www
+# Ensure CGI scripts are executable at runtime
+chmod +x /var/www/*.cgi 2>/dev/null
+# httpd.conf: map .cgi extension to /bin/sh interpreter
+echo "*.cgi:/bin/sh" > /etc/httpd.conf
 echo "Starting HTTP server on port 80..."
-httpd -p 80 -h /var/www
+httpd -p 80 -h /var/www -c /etc/httpd.conf
 echo "HTTP server started at http://$(hostname):80"
 EOF
 chmod +x etc/rcS.d/S50-httpd
@@ -360,7 +364,9 @@ MEM_USED=$(echo $MEM_LINE  | awk '{print $3}')
 MEM_FREE=$(echo $MEM_LINE  | awk '{print $4}')
 LOAD=$(cat /proc/loadavg | awk '{print $1, $2, $3}')
 PROC_COUNT=$(ps | wc -l)
-DISK=$(df -h / 2>/dev/null | tail -1 | awk '{print $3"/"$2" ("$5")"}')
+DISK=$(df -h /home 2>/dev/null | awk 'NR==2{print $3"/"$2" ("$5")"}')
+[ -z "$DISK" ] && DISK=$(df -h /tmp 2>/dev/null | awk 'NR==2{print $3"/"$2" (tmpfs)"}')
+[ -z "$DISK" ] && DISK="ramfs (no quota)"
 ETH_IP=$(ip addr show eth0 2>/dev/null | grep 'inet ' | awk '{print $2}' | head -1)
 [ -z "$ETH_IP" ] && ETH_IP="N/A"
 PKG_COUNT=0
