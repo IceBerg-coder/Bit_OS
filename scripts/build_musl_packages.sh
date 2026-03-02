@@ -164,7 +164,7 @@ build_curl() {
         --disable-rtsp --disable-dict --disable-telnet --disable-tftp \
         --disable-pop3 --disable-imap --disable-smb --disable-smtp --disable-gopher
     make; make install
-    _package "curl" "$SRC/_install/bin/curl" "$CURL_VER" "-" \
+    _package "curl" "$SRC/_install/bin/curl" "$CURL_VER" "musl-libc" \
         "Static curl with TLS - HTTP/HTTPS downloads REST API file transfers"
     cd "$WORKSPACE_ROOT"
 }
@@ -241,9 +241,30 @@ build_jq() {
     ./configure --host="$TARGET" --prefix="$SRC/_install" \
         --disable-shared --enable-static --disable-docs --with-oniguruma=builtin
     make; make install
-    _package "jq" "$SRC/_install/bin/jq" "$JQ_VER" "-" \
+    _package "jq" "$SRC/_install/bin/jq" "$JQ_VER" "musl-libc" \
         "jq - lightweight JSON processor slice filter map transform JSON"
     cd "$WORKSPACE_ROOT"
+}
+
+build_musl_libc() {
+    local MUSL_VER="1.2.5"
+    local LIBC_SO="$TOOLCHAIN_DIR/$TARGET/lib/libc.so"
+    [ -f "$LIBC_SO" ] || { log_err "musl libc.so not found: $LIBC_SO"; exit 1; }
+    log_info "Packaging musl-libc $MUSL_VER (dynamic linker for musl-linked binaries) ..."
+    local STRIP_BIN="$PKG_BUILD/_stripped/musl-libc"
+    mkdir -p "$PKG_BUILD/_stripped"
+    cp "$LIBC_SO" "$STRIP_BIN"
+    # Use --strip-debug not --strip-all — dynamic linkers need their symbol table intact
+    "$STRIP" --strip-debug "$STRIP_BIN" 2>/dev/null || true
+    local SHA; SHA=$(sha256sum "$STRIP_BIN" | awk '{print $1}')
+    cp "$STRIP_BIN" "$WORKSPACE_ROOT/pkgs/musl-libc"
+    sed -i "/^musl-libc /d" "$WORKSPACE_ROOT/pkgs/packages.list" 2>/dev/null || true
+    printf "%-16s %-6s %s  %-16s %s\n" "musl-libc" "$MUSL_VER" "$SHA" "-" \
+        "musl libc dynamic linker - required by curl jq and other musl-dynamic packages" \
+        >> "$WORKSPACE_ROOT/pkgs/packages.list"
+    local SZ; SZ=$(du -sh "$STRIP_BIN" | awk '{print $1}')
+    log_info "[+] Packaged: musl-libc v$MUSL_VER  size=$SZ  sha256=${SHA:0:16}..."
+    log_info "[+] bpm will install this to \$BPM_BIN/musl-libc and /lib/ld-musl-x86_64.so.1"
 }
 
 # ---------------------------------------------------------------------------
@@ -262,7 +283,7 @@ sign_list() {
 # Main
 # ---------------------------------------------------------------------------
 usage() {
-    echo "Usage: $0 [all | sysroot | curl | nano | rsync | htop | jq]"
+    echo "Usage: $0 [all | sysroot | curl | nano | rsync | htop | jq | musl-libc]"
     echo "  all     - sysroot libs + all packages (default)"
     echo "  sysroot - zlib + openssl + ncurses + readline only"
     echo "  curl / nano / rsync / htop / jq  - sysroot + named package"
@@ -291,15 +312,17 @@ main() {
     echo ""
     local T="${1:-all}"
     case "$T" in
-        sysroot) build_sysroot ;;
-        curl)    build_sysroot; build_curl;  sign_list ;;
-        nano)    build_sysroot; build_nano;  sign_list ;;
-        rsync)   build_sysroot; build_rsync; sign_list ;;
-        htop)    build_sysroot; build_htop;  sign_list ;;
-        jq)      build_jq;                   sign_list ;;
+        sysroot)     build_sysroot ;;
+        curl)        build_sysroot; build_curl;       sign_list ;;
+        nano)        build_sysroot; build_nano;       sign_list ;;
+        rsync)       build_sysroot; build_rsync;      sign_list ;;
+        htop)        build_sysroot; build_htop;       sign_list ;;
+        jq)          build_jq;                        sign_list ;;
+        musl-libc)   build_musl_libc;                 sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
+            build_musl_libc
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;

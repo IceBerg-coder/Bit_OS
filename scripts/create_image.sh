@@ -922,6 +922,13 @@ _bpm_install_one() {
         echo -e "\e[1;32m[\u2713] SHA256 verified: $PKG\e[0m"
     fi
     mv "/tmp/bpm_dl_$PKG" "$BPM_BIN/$PKG"; chmod +x "$BPM_BIN/$PKG"
+    # musl-libc: also install the dynamic linker to /lib/ld-musl-x86_64.so.1
+    if [ "$PKG" = "musl-libc" ]; then
+        mkdir -p /lib
+        cp "$BPM_BIN/musl-libc" /lib/ld-musl-x86_64.so.1
+        chmod 755 /lib/ld-musl-x86_64.so.1
+        echo -e "\e[1;32m[+] Dynamic linker installed: /lib/ld-musl-x86_64.so.1\e[0m"
+    fi
     sed -i "/^$PKG /d" "$BPM_DB" 2>/dev/null
     echo "$PKG $VER (github) deps:$DEPS" >> "$BPM_DB"
     echo -e "\e[1;32m[+] Installed $PKG v$VER -> $BPM_BIN\e[0m"
