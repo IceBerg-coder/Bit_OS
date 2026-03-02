@@ -19,3 +19,4 @@ bit-ssl          1.0    c78957a1800fdf969bee9558d6d6d8117f9a4282a2450759fa1c9c29
 bit-users        1.0    c0b1843500577355eb27d0fe3ad477314057c77d3a8fa4fa978a404979c7f626    Full user management TUI - add, delete, passwd, info
 bit-containers   1.0    2421ccf1d1f2b6564ab78f004114e0fe2ba63ed65b6e305da9fa21d74c7eb9c5    Chroot container manager - create, exec, start, stop
 bit-netconf      1.0    829d80db60b0a3e498cd5657fb5d5d713c7c759ee23f92c7ec1937374921d0a3    Static IP / gateway / DNS network configurator
+bit-watch        1.0    074ff83a354d1a69b903c1edc0b013c3a540c8474df43619d8a44f038eff66cd    GNU-watch replacement - refresh any command live in terminal

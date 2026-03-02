@@ -163,8 +163,9 @@ EOF
 
 log_info "Creating user accounts..."
 # Passwords in /etc/shadow (x in passwd = shadow auth)
-echo "root:x:0:0:root:/home/root:/bin/sh" > etc/passwd
-echo "kaung:x:1000:1000:kaung:/home/kaung:/bin/sh" >> etc/passwd
+# Use /bin/bash as default login shell (bash-static is bundled)
+echo "root:x:0:0:root:/home/root:/bin/bash" > etc/passwd
+echo "kaung:x:1000:1000:kaung:/home/kaung:/bin/bash" >> etc/passwd
 echo "sshd:x:74:74:Privilege-separated SSH:/var/empty:/sbin/nologin" >> etc/passwd
 echo "root:x:0:" > etc/group
 echo "kaung:x:1000:" >> etc/group
@@ -536,6 +537,16 @@ bar() {
 }
 MEM_BAR=$(bar $MEM_USED $MEM_TOTAL)
 
+# Security / firewall card data
+FW_RULES=$(iptables -L INPUT --line-numbers 2>/dev/null | grep -c '^[0-9]' || echo 0)
+FW_POLICY=$(iptables -L INPUT 2>/dev/null | head -1 | awk '{print $4}' | tr -d ')')
+[ -z "$FW_POLICY" ] && FW_POLICY="N/A"
+HTTPS_STATUS="stopped"
+pidof socat >/dev/null 2>&1 && HTTPS_STATUS="running"
+CERT_EXPIRY="N/A"
+[ -f /etc/ssl/bitos/bitos.crt ] && CERT_EXPIRY=$(openssl x509 -noout -enddate -in /etc/ssl/bitos/bitos.crt 2>/dev/null | cut -d= -f2 | awk '{print $1,$2,$4}')
+FW_BLOCKED=$(awk 'NR>1{c++}END{print c+0}' /proc/net/xt_recent/SSH 2>/dev/null || echo 0)
+
 cat << HTML
 <!DOCTYPE html>
 <html>
@@ -612,6 +623,19 @@ cat << HTML
       <span class="label">Cron (crond)</span>
       <span class="badge $([ "$CRON_STATUS" = "running" ] && echo badge-green || echo badge-red)">$CRON_STATUS</span>
     </div>
+    <div class="row">
+      <span class="label">HTTPS (socat)</span>
+      <span class="badge $([ "$HTTPS_STATUS" = "running" ] && echo badge-green || echo badge-red)">$HTTPS_STATUS</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Security</h2>
+    <div class="row"><span class="label">Firewall</span><span class="badge badge-green">active</span></div>
+    <div class="row"><span class="label">INPUT policy</span><span class="val red">$FW_POLICY</span></div>
+    <div class="row"><span class="label">Rules loaded</span><span class="val">$FW_RULES</span></div>
+    <div class="row"><span class="label">SSH tracked IPs</span><span class="val $([ "$FW_BLOCKED" -gt 0 ] 2>/dev/null && echo red || echo green)">$FW_BLOCKED</span></div>
+    <div class="row"><span class="label">TLS cert expiry</span><span class="val">$CERT_EXPIRY</span></div>
   </div>
 
 </div>
@@ -629,12 +653,13 @@ log_info "Creating MOTD and profile..."
 cat << 'EOF' > etc/motd
 Welcome to BitOS Professional Edition
   bit_info             - system info
-  bpm available        - browse 19 packages
+  bpm available        - browse 20 packages
   svc status           - service manager
   bit-firewall menu    - firewall TUI
   bit-users menu       - user manager TUI
   bit-netconf status   - network configurator
   bit-containers list  - container manager
+  bit-watch -n2 cmd    - live terminal refresh (like watch)
 Dashboard: http://localhost:80/dashboard.cgi
    HTTPS: https://localhost:443/dashboard.cgi
 EOF
@@ -842,7 +867,7 @@ svc() {
             sshd)    PF="/var/run/sshd.pid";  START="/usr/sbin/sshd";                               STOP="kill \$(cat $PF)" ;;
             httpd)   PF="";                    START="httpd -p 80 -h /var/www -c /etc/httpd.conf"; STOP="killall httpd" ;;
             crond)   PF="";                    START="crond -b -l 8 -L /var/log/cron.log";         STOP="killall crond" ;;
-            telnetd) PF="";                    START="telnetd -l /bin/sh";                         STOP="killall telnetd" ;;
+            telnetd) PF="";                    START="telnetd -l /bin/bash";                       STOP="killall telnetd" ;;
             syslogd) PF="";                    START="syslogd -S -b 7 -s 200 -O /var/log/messages"; STOP="killall syslogd" ;;
             *) echo "[!] Unknown service '$NAME'. Known: sshd httpd crond telnetd syslogd"; return 1 ;;
         esac
@@ -896,7 +921,7 @@ adduser() {
     USERNAME="$1"
     UID_NUM="${2:-$(awk -F: '{if($3>999 && $3<65534) print $3}' /etc/passwd | sort -n | tail -1 | xargs -I{} expr {} + 1 || echo 1000)}"
     grep -q "^$USERNAME:" /etc/passwd && echo "[!] User $USERNAME already exists" && return 1
-    echo "${USERNAME}:x:${UID_NUM}:${UID_NUM}::/home/${USERNAME}:/bin/sh" >> /etc/passwd
+    echo "${USERNAME}:x:${UID_NUM}:${UID_NUM}::/home/${USERNAME}:/bin/bash" >> /etc/passwd
     echo "${USERNAME}:x:${UID_NUM}:" >> /etc/group
     echo "${USERNAME}:!:19000:0:99999:7:::" >> /etc/shadow
     mkdir -p "/home/${USERNAME}"

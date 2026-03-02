@@ -1,0 +1,40 @@
+#!/bin/sh
+# bit-watch: Repeatedly run a command with live terminal refresh (like GNU watch)
+# Usage: bit-watch [-n <seconds>] <command...>
+# Press Ctrl+C to exit.
+
+C0='\033[0m'; C1='\033[1;34m'; C2='\033[1;33m'; C3='\033[0;90m'
+
+INTERVAL=2
+while [ "$1" = "-n" ] || [ "$1" = "--interval" ]; do
+    shift; INTERVAL="$1"; shift
+done
+
+[ -z "$1" ] && {
+    echo "Usage: bit-watch [-n <secs>] <command...>"
+    echo ""
+    echo "Examples:"
+    echo "  bit-watch svc status              # refresh every 2s"
+    echo "  bit-watch -n 5 bpm list           # refresh every 5s"
+    echo "  bit-watch -n 1 'cat /proc/loadavg'"
+    exit 1
+}
+
+CMD="$*"
+
+while true; do
+    # Move cursor to home without flicker (tput home if available, else clear)
+    tput home 2>/dev/null || clear
+    # Print header bar
+    COLS=$(tput cols 2>/dev/null || echo 80)
+    HDR=$(printf "bit-watch: every %ss  |  cmd: %s  |  %s  |  Ctrl+C to exit" \
+        "$INTERVAL" "$CMD" "$(date '+%H:%M:%S')")
+    # Truncate header to terminal width
+    HDR=$(echo "$HDR" | cut -c1-"$COLS")
+    printf "\033[7m%-${COLS}s\033[0m\n" "$HDR"
+    echo ""
+    # Run the command
+    eval "$CMD"
+    # Pad remaining lines so old output doesn't bleed through
+    sleep "$INTERVAL"
+done
