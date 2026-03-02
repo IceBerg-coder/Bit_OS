@@ -12,12 +12,12 @@
 |---|---|
 | **Kernel** | Linux 6.6.15, x86_64, with Netfilter (conntrack, rate-limiting, REJECT, LOG, recent, limit) |
 | **Userspace** | BusyBox 1.36.1 statically linked — full POSIX shell, coreutils, networking |
-| **Shell** | bash-static 5.2.37 + ash (BusyBox fallback) |
+| **Shell** | bash-static 5.2.37 as default login shell (`/bin/bash`) + ash (BusyBox fallback) |
 | **SSH** | OpenSSH 9.9p2, key gen on first boot, MaxAuthTries 3, rate-limited (4 conn/60s) |
 | **HTTPS** | socat 1.8.0.3 + openssl, auto self-signed cert, port 443 → httpd:80 |
-| **Web Dashboard** | GitHub-style dark CGI dashboard, auto-refresh 10s, shows system/memory/disk/services |
+| **Web Dashboard** | GitHub-style dark CGI dashboard, auto-refresh 10s, 5 cards: system/memory/disk/services/**security** |
 | **Firewall** | iptables-legacy, SSH rate-limit, ICMP limit, SYN flood protect, input policy DROP |
-| **Package Manager** | `bpm` — 19 packages on GitHub, install/remove/upgrade with SHA256 verification |
+| **Package Manager** | `bpm` — 20 packages on GitHub, install/remove/upgrade with SHA256 verification |
 | **Service Manager** | `svc start|stop|restart|status sshd httpd crond telnetd syslogd` |
 | **User Manager** | `adduser / deluser / lsusers / chpasswd_user` + `bit-users` TUI |
 | **Init System** | BusyBox init (PID 1), graceful SIGTERM/SIGINT shutdown, S* startup scripts |
@@ -110,14 +110,14 @@ open https://localhost:8443/dashboard.cgi
 ## Package Manager (bpm)
 
 ```bash
-bpm available               # list all 19 packages
+bpm available               # list all 20 packages
 bpm install bit-sysinfo     # install a package (SHA256 verified)
 bpm list                    # show installed packages and versions
 bpm upgrade                 # upgrade all installed packages
 bpm remove bit-sysinfo      # remove a package
 ```
 
-### Package Registry (19 packages)
+### Package Registry (20 packages)
 
 | Package | Version | Description |
 |---------|---------|-------------|
@@ -139,8 +139,7 @@ bpm remove bit-sysinfo      # remove a package
 | `bit-ssl` | 1.0 | TLS certificate generator |
 | `bit-users` | 1.0 | User management TUI |
 | `bit-containers` | 1.0 | Chroot container manager |
-| `bit-netconf` | 1.0 | Static IP / gateway / DNS configurator |
-
+| `bit-netconf` | 1.0 | Static IP / gateway / DNS configurator || `bit-watch` | 1.0 | GNU-watch replacement — refresh any command live |
 ---
 
 ## Service Manager (svc)
@@ -153,6 +152,27 @@ svc restart crond           # restart a service
 ```
 
 Services: `sshd`, `httpd`, `crond`, `telnetd`, `syslogd`
+
+```bash
+# bit-watch: live terminal refresh
+bpm install bit-watch
+bit-watch svc status          # refresh every 2s
+bit-watch -n 5 bpm list       # refresh every 5s
+bit-watch -n 1 'cat /proc/loadavg'
+```
+
+---
+
+## bit-watch
+
+```bash
+bpm install bit-watch
+bit-watch svc status          # refresh every 2s
+bit-watch -n 5 bpm list       # refresh every 5s
+bit-watch -n 1 'cat /proc/loadavg'
+```
+
+Prints a status bar (command + timestamp) and reruns the command every N seconds, clearing the screen between runs. Compatible with BusyBox `tput`.
 
 ---
 
