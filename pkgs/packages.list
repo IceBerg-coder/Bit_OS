@@ -21,3 +21,8 @@ bit-users        1.0    c0b1843500577355eb27d0fe3ad477314057c77d3a8fa4fa978a4049
 bit-containers   1.0    2421ccf1d1f2b6564ab78f004114e0fe2ba63ed65b6e305da9fa21d74c7eb9c5    -                Chroot container manager - create, exec, start, stop
 bit-netconf      1.0    829d80db60b0a3e498cd5657fb5d5d713c7c759ee23f92c7ec1937374921d0a3    -                Static IP / gateway / DNS network configurator
 bit-watch        1.0    074ff83a354d1a69b903c1edc0b013c3a540c8474df43619d8a44f038eff66cd    -                GNU-watch replacement - refresh any command live in terminal
+nano             7.2    72350db433ae10c29059555a5c21ca44ebfbdfcb208242ab2b6420651543b427  -                GNU nano text editor - static build with full ncurses TUI
+rsync            3.4.1  7c6f034bf9f07968f0d3a202e60eb0bd6cc0657183e66e61653c5dd3a356d973  -                rsync - static file sync over SSH local or rsync protocol
+htop             3.3.0  b6c22cebe6757a84f376208a3aa401bbb97cdc7f689d3a3d752541e59c256761  -                htop - interactive process viewer with CPU mem bars ncurses TUI
+jq               1.7.1  f0b4499e447e708e673adc051151194843ee14c6ba03b007cfe5cd90efd09fc7  -                jq - lightweight JSON processor slice filter map transform JSON
+curl             8.9.1  5f33634895b126b487118a564e7b6d6f61faf34dd8bdca1bf9a9e0df211aaf46  -                Static curl with TLS - HTTP/HTTPS downloads REST API file transfers
