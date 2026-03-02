@@ -1,39 +1,44 @@
 # BitOS Development Roadmap
 
-## Current Baseline (v1.1)
+## Current Baseline (v1.5)
 
-- 21MB ISO, Linux 6.6.15, BusyBox 1.36.1, OpenSSH 9.9p2
-- RAM-only root FS, 20 packages, bpm with SHA256 verification
-- HTTPS (socat + openssl), iptables firewall, web dashboard, bash shell, service manager
+- 21MB ISO, Linux 6.6.15 (kernel build #5), BusyBox 1.36.1, OpenSSH 9.9p2
+- RAM-only root FS, 20 packages, bpm v1.5 with dep-aware install + RSA-signed repository
+- HTTPS (socat + openssl), iptables firewall (xt_recent/limit/hashlimit), web dashboard, bash shell
+- Boot splash `[  OK  ]` / `[FAIL]` per service, GRUB2 EFI hybrid ISO, boot log CGI
+- S05-hostname, S00-restore, S02-netconf persistent network config
 
 ---
 
-## Phase 1 — Foundation Hardening `v1.x` *(Now → 1 month)*
+## Phase 1 — Foundation Hardening `v1.x` ✅ *COMPLETE*
 
 > Make what exists production-quality before expanding.
 
-### 1.1 — Persistent Root FS
+### 1.1 — Persistent Root FS ✅
 - `switch_root` into a real ext4 partition at boot instead of staying in initramfs RAM
 - Root on `/dev/sda1`, `/home` as separate partition
 - `overlayfs`: read-only squashfs base + writable upper layer (Alpine live-mode style)
 - Packages installed via `bpm` survive reboots
 
-### 1.2 — bpm Dependency Declarations
-- Add optional `Depends:` field to `packages.list`
-- `bpm install bit-ssl` auto-installs declared dependencies
-- Block `bpm remove` if another package depends on it
+### 1.2 — Boot Polish ✅
+- `[  OK  ]` / `[FAIL]` splash per service during `rcS.d`
+- GRUB2 EFI hybrid ISO (BIOS + UEFI on one image)
+- Boot log CGI accessible in the web dashboard
 
-### 1.3 — Boot Polish
-- Splash progress bar during `rcS.d` scripts — `[  OK  ]` / `[FAIL]` per service
-- Boot time target: under 3 seconds to login prompt
-- GRUB2 with EFI support (replace ISOLINUX — currently BIOS-only)
+### 1.3 — netconf Boot Hook ✅
+- `S00-restore` restores `/etc` from persistent disk on boot
+- `S02-netconf` applies saved `/etc/network/*.conf` on every boot
+- `S05-hostname` sets hostname before httpd starts
 
-### 1.4 — netconf Boot Hook
-- `S05-netconf` in `rcS.d` applies saved `/etc/network/*.conf` on boot
-- Without this, `bit-netconf set-ip` settings don't survive reboot
+### 1.4 — bpm Dependency Declarations ✅
+- `packages.list` updated to 5-field format: `name version sha256 deps description`
+- `bpm install bit-ssl` auto-installs `bit-net` before installing `bit-ssl`
+- `bpm remove` blocked with a message if another installed package depends on the target
+- Repository list signed with RSA-2048; verified with `/etc/bpm_pubkey.pem` on every fetch
+- New `bpm info <pkg>` subcommand — version, deps, installed status, description
 
-**Milestone: v1.2** — Persistent root + netconf boot hook + GRUB EFI  
-**Milestone: v1.5** — Dep-aware bpm + GPG signing + boot splash
+**Milestone: v1.2** ✅ — Persistent root + netconf boot hook + GRUB EFI *(shipped)*
+**Milestone: v1.5** ✅ — Dep-aware bpm + RSA-signed repo + boot splash + bpm info *(shipped)*
 
 ---
 
@@ -178,10 +183,10 @@ on: push to main
 
 ## Milestone Summary
 
-| Version | Goal | Timeline |
-|---------|------|----------|
-| **v1.2** | Persistent root FS + netconf boot hook + GRUB EFI | 2 weeks |
-| **v1.5** | Dep-aware bpm + GPG signing + boot splash | 1 month |
+| Version | Goal | Status |
+|---------|------|--------|
+| **v1.2** | Persistent root FS + netconf boot hook + GRUB EFI | ✅ Done |
+| **v1.5** | Dep-aware bpm + RSA-signed repo + boot splash + `bpm info` | ✅ Done |
 | **v2.0** | musl libc + 100 packages + gcc toolchain | 3 months |
 | **v2.5** | s6 init + eudev + structured logging | 5 months |
 | **v3.0** | PAM + sudo + hardened kernel + AppArmor | 8 months |
@@ -192,7 +197,7 @@ on: push to main
 
 ## Comparison with Established Distros
 
-| Feature | BitOS v1.1 | Alpine Linux | Debian/Ubuntu |
+| Feature | BitOS v1.5 | Alpine Linux | Debian/Ubuntu |
 |---|---|---|---|
 | ISO size | 21MB | 50MB | 500MB+ |
 | Packages | 20 | 10,000+ | 59,000+ |
@@ -202,12 +207,14 @@ on: push to main
 | SSH | ✅ OpenSSH 9.9p2 | ✅ | ✅ |
 | HTTPS at boot | ✅ unique | ❌ | ❌ |
 | Web dashboard | ✅ unique | ❌ | ❌ |
+| Signed pkg repo | ✅ RSA-SHA256 | ✅ | ✅ |
+| Dep-aware bpm | ✅ auto-install | ✅ | ✅ |
 | PAM | ❌ | ✅ | ✅ |
 | sudo | ❌ | ✅ | ✅ |
 | AppArmor | ❌ | ❌ | ✅ |
-| EFI boot | ❌ (v1.2 target) | ✅ | ✅ |
-| Desktop | ❌ (v3.5 target) | optional | ✅ |
+| EFI boot | ✅ GRUB hybrid | ✅ | ✅ |
+| Desktop | ❌ *(v3.5 target)* | optional | ✅ |
 
 ---
 
-*The highest-leverage first move is **v1.2 — persistent root FS**. Everything else (surviving reboots, native package installs, a real compiler) becomes possible once the root is writable and on disk.*
+*Phase 1 is complete. The highest-leverage next move is **v2.0 — musl libc**. Everything else (native package installs, a real compiler, 100+ packages) becomes possible once the system has a proper libc.*

@@ -1,6 +1,6 @@
 # BitOS Professional Edition
 
-> A minimal, bootable Linux OS built from scratch — Linux 6.6.15 kernel + BusyBox 1.36.1 + OpenSSH 9.9p2 — with a web dashboard, package manager, firewall, HTTPS, containers, and 19 downloadable packages.
+> A minimal, bootable Linux OS built from scratch — Linux 6.6.15 kernel + BusyBox 1.36.1 + OpenSSH 9.9p2 — with a web dashboard, dep-aware package manager with signed repository, firewall, HTTPS, containers, and 20 downloadable packages.
 
 [![GitHub](https://img.shields.io/badge/Source-GitHub-green)](https://github.com/IceBerg-coder/Bit_OS)
 
@@ -17,7 +17,7 @@
 | **HTTPS** | socat 1.8.0.3 + openssl, auto self-signed cert, port 443 → httpd:80 |
 | **Web Dashboard** | GitHub-style dark CGI dashboard, auto-refresh 10s, 5 cards: system/memory/disk/services/**security** |
 | **Firewall** | iptables-legacy, SSH rate-limit, ICMP limit, SYN flood protect, input policy DROP |
-| **Package Manager** | `bpm` — 20 packages on GitHub, install/remove/upgrade with SHA256 verification |
+| **Package Manager** | `bpm` v1.5 — 20 packages, dep-aware install, signed repo (RSA-SHA256), `bpm info`, block-remove-if-depended |
 | **Service Manager** | `svc start|stop|restart|status sshd httpd crond telnetd syslogd` |
 | **User Manager** | `adduser / deluser / lsusers / chpasswd_user` + `bit-users` TUI |
 | **Init System** | BusyBox init (PID 1), graceful SIGTERM/SIGINT shutdown, S* startup scripts |
@@ -36,11 +36,15 @@ BitOS/
 │   ├── build_busybox.sh     # Build BusyBox 1.36.1
 │   ├── create_image.sh      # Build initramfs + ISO  ← main file
 │   ├── create_storage.sh    # Create 128MB ext4 storage image
+│   ├── sign_packages.sh     # Re-sign packages.list after edits
 │   ├── run.sh               # QEMU launcher
 │   └── common.sh            # Shared variables
 ├── pkgs/
-│   ├── packages.list        # Package registry (name version sha256 description)
-│   └── bit-*                # 19 installable packages
+│   ├── packages.list        # Package registry (name version sha256 deps description)
+│   ├── packages.list.sig    # RSA-SHA256 signature (verified at bpm runtime)
+│   ├── keys/
+│   │   └── signing_pubkey.pem  # Public key (embedded in /etc/bpm_pubkey.pem)
+│   └── bit-*                # 20 installable packages
 ├── src/
 │   ├── busybox-1.36.1/      # BusyBox source
 │   └── linux-6.6.15/        # Linux kernel source
@@ -109,37 +113,41 @@ open https://localhost:8443/dashboard.cgi
 
 ## Package Manager (bpm)
 
+bpm v1.5 verifies the repository signature with the embedded RSA public key before any install or upgrade.
+
 ```bash
-bpm available               # list all 20 packages
-bpm install bit-sysinfo     # install a package (SHA256 verified)
-bpm list                    # show installed packages and versions
-bpm upgrade                 # upgrade all installed packages
-bpm remove bit-sysinfo      # remove a package
+bpm available               # list all 20 packages with deps column
+bpm install bit-ssl         # install + auto-install declared deps (bit-net)
+bpm info bit-editor         # show version, deps, installed status, description
+bpm list                    # show installed packages, versions, and deps
+bpm upgrade                 # upgrade all installed packages (sig-verified)
+bpm remove bit-net          # blocked if another package depends on it
 ```
 
 ### Package Registry (20 packages)
 
-| Package | Version | Description |
-|---------|---------|-------------|
-| `bit-hello` | 1.1 | SDK example / hello world |
-| `bit-sysinfo` | 1.1 | CPU, memory, disk, network info |
-| `bit-netinfo` | 1.1 | Network diagnostics |
-| `bit-monitor` | 1.2 | Live TUI system monitor (CPU/mem/disk/net/procs) |
-| `bit-diskinfo` | 1.1 | Disk and filesystem usage with bars |
-| `bit-update` | 1.1 | Update all installed packages at once |
-| `bit-ps` | 1.1 | Process manager with kill support |
-| `bit-log` | 1.1 | Log viewer/manager |
-| `bit-bench` | 1.1 | CPU and memory benchmark |
-| `bit-files` | 1.1 | File browser |
-| `bit-editor` | 1.1 | Text editor with vi backend |
-| `bit-net` | 1.1 | Network toolkit (get/dns/ping/scan/speed/trace) |
-| `bit-backup` | 1.1 | Backup and restore /etc and /home |
-| `bit-cron` | 1.1 | Cron job manager |
-| `bit-firewall` | 1.0 | Firewall manager TUI |
-| `bit-ssl` | 1.0 | TLS certificate generator |
-| `bit-users` | 1.0 | User management TUI |
-| `bit-containers` | 1.0 | Chroot container manager |
-| `bit-netconf` | 1.0 | Static IP / gateway / DNS configurator || `bit-watch` | 1.0 | GNU-watch replacement — refresh any command live |
+| Package | Version | Depends | Description |
+|---------|---------|---------|-------------|
+| `bit-hello` | 1.1 | — | SDK example / hello world |
+| `bit-sysinfo` | 1.1 | — | CPU, memory, disk, network info |
+| `bit-netinfo` | 1.1 | — | Network diagnostics |
+| `bit-monitor` | 1.2 | — | Live TUI system monitor (CPU/mem/disk/net/procs) |
+| `bit-diskinfo` | 1.1 | — | Disk and filesystem usage with bars |
+| `bit-update` | 1.1 | — | Update all installed packages at once |
+| `bit-ps` | 1.1 | — | Process manager with kill support |
+| `bit-log` | 1.1 | — | Log viewer/manager |
+| `bit-bench` | 1.1 | — | CPU and memory benchmark |
+| `bit-files` | 1.1 | — | File browser |
+| `bit-editor` | 1.1 | `bit-files` | Text editor with vi backend |
+| `bit-net` | 1.1 | — | Network toolkit (get/dns/ping/scan/speed/trace) |
+| `bit-backup` | 1.1 | — | Backup and restore /etc and /home |
+| `bit-cron` | 1.1 | — | Cron job manager |
+| `bit-firewall` | 1.0 | — | Firewall manager TUI |
+| `bit-ssl` | 1.0 | `bit-net` | TLS certificate generator |
+| `bit-users` | 1.0 | — | User management TUI |
+| `bit-containers` | 1.0 | — | Chroot container manager |
+| `bit-netconf` | 1.0 | — | Static IP / gateway / DNS configurator |
+| `bit-watch` | 1.0 | — | GNU-watch replacement — refresh any command live |
 ---
 
 ## Service Manager (svc)
@@ -231,7 +239,8 @@ Shutdown/reboot via `init 0` / `init 6` or `poweroff` / `reboot`. SIGTERM is cau
 - SSH: `MaxAuthTries 3`, `LoginGraceTime 30`, login banner
 - Firewall: SSH rate-limit 4 conn/60s (xt_recent), ICMP limit 10/s, INPUT chain default DROP
 - HTTPS: self-signed RSA-2048 cert, rotated on first boot
-- Packages: SHA256 verified on install
+- Packages: repository `packages.list` RSA-SHA256 signed; each package SHA256 verified on install
+- Package removal blocked if a depended-on package is targeted
 
 ---
 
