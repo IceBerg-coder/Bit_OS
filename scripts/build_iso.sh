@@ -40,10 +40,34 @@ LABEL bitos
 EOF
 
 log_info "Generating ISO image..."
-genisoimage -o "$OUTPUT_DIR/bitos.iso" \
-    -b isolinux/isolinux.bin \
-    -c isolinux/boot.cat \
-    -no-emul-boot -boot-load-size 4 -boot-info-table \
-    -R -J "$ISO_PATH"
+
+# Create GRUB config for both BIOS and EFI boot
+mkdir -p "$ISO_PATH/boot/grub"
+cat << 'EOF' > "$ISO_PATH/boot/grub/grub.cfg"
+set default=0
+set timeout=3
+
+menuentry "BitOS Professional Edition" {
+    linux /isolinux/vmlinuz console=ttyS0 console=tty1 quiet
+    initrd /isolinux/initramfs.cpio.gz
+}
+
+menuentry "BitOS (verbose boot)" {
+    linux /isolinux/vmlinuz console=ttyS0 console=tty1
+    initrd /isolinux/initramfs.cpio.gz
+}
+EOF
+
+if command -v grub-mkrescue >/dev/null 2>&1; then
+    log_info "Building hybrid BIOS+EFI ISO with grub-mkrescue..."
+    grub-mkrescue -o "$OUTPUT_DIR/bitos.iso" "$ISO_PATH" 2>&1
+else
+    log_info "grub-mkrescue not found, falling back to genisoimage (BIOS only)..."
+    genisoimage -o "$OUTPUT_DIR/bitos.iso" \
+        -b isolinux/isolinux.bin \
+        -c isolinux/boot.cat \
+        -no-emul-boot -boot-load-size 4 -boot-info-table \
+        -R -J "$ISO_PATH"
+fi
 
 log_info "ISO created at $OUTPUT_DIR/bitos.iso"

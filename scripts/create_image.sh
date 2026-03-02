@@ -218,29 +218,42 @@ mdev -s
 # Set networking (loopback)
 ifconfig lo 127.0.0.1 up
 
-# Run level 1 startup scripts (Modular init)
-mkdir -p /etc/rcS.d
-for script in /etc/rcS.d/S*; do
-    [ -f "$script" ] && [ -x "$script" ] && log_msg "Running $script..." && "$script"
-done
+    # Mount persistent storage EARLY — before rcS.d scripts so S00-restore can use it
+    if [ -b /dev/vda ]; then
+        log_msg "Mounting persistent storage /dev/vda -> /home..."
+        mount -t ext4 /dev/vda /home 2>/dev/null \
+            && log_msg "Persistent storage online" \
+            || log_msg "Warning: /dev/vda mount failed, /home is tmpfs"
+    else
+        log_msg "No persistent disk (/dev/vda) found — /home is tmpfs"
+    fi
 
-# Conditionally mount persistent /home if /dev/vda exists
-if [ -b /dev/vda ]; then
-    log_msg "Mounting persistent storage /dev/vda -> /home..."
-    mount -t ext4 /dev/vda /home 2>/dev/null || log_msg "Warning: Could not mount /dev/vda"
-else
-    log_msg "No persistent disk found, using tmpfs for /home"
-fi
+    # Prepare /home directory structure
+    mkdir -p /home/bin /home/root /home/kaung /home/.config/network
+    chown -R 1000:1000 /home/kaung 2>/dev/null
 
-# Ensure home structure exists on disk
-log_msg "Preparing user environments..."
-mkdir -p /home/root /home/kaung /home/bin
-chown -R 1000:1000 /home/kaung 2>/dev/null
+    # Sentinel file: presence of /home/.persistent tells bpm and tools to use /home for storage
+    if mountpoint -q /home 2>/dev/null; then
+        touch /home/.persistent
+        log_msg "Persistent mode: packages + config will survive reboots"
+    fi
 
-# Set hostname
-hostname -F /etc/hostname
-EOF
+    # Run rcS.d startup scripts with coloured boot splash
+    log_msg "Starting services..."
+    for script in /etc/rcS.d/S*; do
+        [ -f "$script" ] && [ -x "$script" ] || continue
+        NAME=$(basename "$script")
+        printf "  \e[1;34m[ .... ]\e[0m %s\r" "$NAME"
+        if "$script" > /tmp/boot-${NAME}.log 2>&1; then
+            printf "  \e[1;32m[  OK  ]\e[0m %s\n" "$NAME"
+        else
+            RC=$?
+            printf "  \e[1;31m[ FAIL ]\e[0m %s  (exit $RC)\n" "$NAME"
+            tail -1 /tmp/boot-${NAME}.log 2>/dev/null | sed 's/^/             /'
+        fi
+    done
 
+    # Set hostname — S00-restore may have restored /etc/hostname from persistent storage
 # Graceful shutdown script — called by inittab on halt/shutdown/SIGTERM to PID 1
 log_info "Creating etc/init.d/shutdown.sh..."
 cat << 'SHUTEOF' > etc/init.d/shutdown.sh
@@ -301,20 +314,68 @@ chmod +x usr/share/udhcpc/default.script
 
 log_info "Creating rcS.d startup scripts..."
 mkdir -p etc/rcS.d
+
+# S00-restore: must run first — restores persisted /etc files from /home/.config/
+cat << 'EOF' > etc/rcS.d/S00-restore
+#!/bin/sh
+PERSIST="/home/.config"
+[ -d "$PERSIST" ] || exit 0
+[ -f /home/.persistent ] || exit 0
+echo "Restoring persistent config from $PERSIST ..."
+for f in hostname passwd group resolv.conf bitos.configured; do
+    [ -f "$PERSIST/$f" ] && cp "$PERSIST/$f" "/etc/$f" && echo "  + $f"
+done
+[ -f "$PERSIST/shadow" ] && cp "$PERSIST/shadow" /etc/shadow && chmod 640 /etc/shadow && echo "  + shadow"
+[ -d "$PERSIST/network" ] && cp -r "$PERSIST/network/." /etc/network/ 2>/dev/null && echo "  + network/*.conf"
+echo "Restore complete."
+EOF
+chmod +x etc/rcS.d/S00-restore
+
+# S01-network: bring up eth0 — skips DHCP if static IP is configured (S02-netconf handles it)
 cat << 'EOF' > etc/rcS.d/S01-network
 #!/bin/sh
-echo "Bringing up eth0..."
 ifconfig eth0 up
-sleep 1
-echo "Attempting DHCP on eth0..."
-udhcpc -i eth0 -p /var/run/udhcpc.eth0.pid -q
-if [ -z "$(cat /etc/resolv.conf 2>/dev/null)" ]; then
-  echo "nameserver 8.8.8.8" > /etc/resolv.conf
-  echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+# If a static IP config exists, skip DHCP — let S02-netconf apply it
+if [ -f /etc/network/eth0.conf ]; then
+    MODE=$(grep '^MODE=' /etc/network/eth0.conf 2>/dev/null | cut -d= -f2)
+    if [ "$MODE" = "static" ]; then
+        echo "Static IP configured for eth0 — skipping DHCP"
+        exit 0
+    fi
 fi
-echo "Network: $(ifconfig eth0 | grep 'inet ' | awk '{print $2}') DNS: $(head -1 /etc/resolv.conf 2>/dev/null)"
+echo "Requesting DHCP lease on eth0..."
+udhcpc -i eth0 -p /var/run/udhcpc.eth0.pid -q -s /usr/share/udhcpc/default.script 2>/dev/null
+[ -z "$(cat /etc/resolv.conf 2>/dev/null)" ] && echo "nameserver 8.8.8.8" > /etc/resolv.conf && echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+echo "eth0: $(ifconfig eth0 2>/dev/null | awk '/inet /{print $2}')  DNS: $(head -1 /etc/resolv.conf 2>/dev/null)"
 EOF
 chmod +x etc/rcS.d/S01-network
+
+# S02-netconf: apply static IP / gateway / DNS from /etc/network/*.conf
+cat << 'EOF' > etc/rcS.d/S02-netconf
+#!/bin/sh
+APPLIED=0
+for conf in /etc/network/*.conf; do
+    [ -f "$conf" ] || continue
+    IFACE=$(basename "$conf" .conf)
+    MODE=$(grep '^MODE=' "$conf" 2>/dev/null | cut -d= -f2)
+    [ "$MODE" != "static" ] && continue
+    IP=$(grep '^IP=' "$conf" | cut -d= -f2)
+    MASK=$(grep '^MASK=' "$conf" | cut -d= -f2)
+    GW=$(grep '^GW=' "$conf" | cut -d= -f2)
+    DNS=$(grep '^DNS=' "$conf" | cut -d= -f2-)
+    [ -z "$IP" ] && continue
+    ifconfig "$IFACE" "$IP" netmask "${MASK:-255.255.255.0}" up 2>/dev/null
+    if [ -n "$GW" ]; then route del default 2>/dev/null; route add default gw "$GW" "$IFACE" 2>/dev/null; fi
+    if [ -n "$DNS" ]; then
+        printf "" > /etc/resolv.conf
+        for ns in $DNS; do echo "nameserver $ns" >> /etc/resolv.conf; done
+    fi
+    echo "applied: $IFACE $IP gw=${GW:-none} dns=${DNS:-dhcp}"
+    APPLIED=$((APPLIED+1))
+done
+[ "$APPLIED" -eq 0 ] && echo "No static IP configs — network via DHCP" && exit 0
+EOF
+chmod +x etc/rcS.d/S02-netconf
 
 cat << 'EOF' > etc/rcS.d/S10-depmod
 #!/bin/sh
@@ -700,12 +761,31 @@ bit_info() {
     echo ""
 }
 
+# _persist_etc: Copy /etc files to /home/.config/ for persistence across reboots
+_persist_etc() {
+    [ -f /home/.persistent ] || return 0
+    mkdir -p /home/.config/network
+    for f in "$@"; do
+        [ -f "$f" ] || continue
+        cp "$f" /home/.config/ && echo -e "\e[1;36m[~]\e[0m persisted $(basename $f)"
+    done
+    # Also persist network configs as a directory
+    [ -d /etc/network ] && cp -r /etc/network/. /home/.config/network/ 2>/dev/null
+}
+
 # bpm: BitOS Package Manager
 bpm() {
     # GitHub raw URL - packages live in pkgs/ directory of the repo
     REPO_URL="https://raw.githubusercontent.com/IceBerg-coder/Bit_OS/main/pkgs"
-    PKG_DB="/etc/bpm.db"
     PKG_LIST_URL="$REPO_URL/packages.list"
+    # Persistent mode: install to /home/bin and use /home/.config/bpm.db if disk is mounted
+    if [ -f /home/.persistent ]; then
+        PKG_DB="/home/.config/bpm.db"
+        INSTALL_BIN="/home/bin"
+    else
+        PKG_DB="/etc/bpm.db"
+        INSTALL_BIN="/usr/bin"
+    fi
     
     case "$1" in
         "install")
@@ -736,10 +816,10 @@ bpm() {
                          fi
                          echo -e "\e[1;32m[✓] SHA256 verified\e[0m"
                      fi
-                     mv "/tmp/bpm_dl_$2" "/usr/bin/$2"
-                     chmod +x "/usr/bin/$2"
+                     mv "/tmp/bpm_dl_$2" "$INSTALL_BIN/$2"
+                     chmod +x "$INSTALL_BIN/$2"
                      echo "$2 $PKG_VER (github)" >> "$PKG_DB"
-                     echo -e "\e[1;32m[+] Installed $2 v${PKG_VER} from GitHub repository.\e[0m"
+                     echo -e "\e[1;32m[+] Installed $2 v${PKG_VER} -> $INSTALL_BIN\e[0m"
                      echo "Run: $2"
                 else
                      rm -f "/tmp/bpm_dl_$2"
@@ -749,8 +829,8 @@ bpm() {
             ;;
         "remove")
             [ -z "$2" ] && echo "Usage: bpm remove <name>" && return 1
-            if [ -f "/usr/bin/$2" ]; then
-                rm "/usr/bin/$2"
+            if [ -f "$INSTALL_BIN/$2" ] || [ -f "/usr/bin/$2" ]; then
+                rm -f "$INSTALL_BIN/$2" "/usr/bin/$2" 2>/dev/null
                 sed -i "/^$2 /d" "$PKG_DB" 2>/dev/null
                 echo -e "\e[1;32m[-] Removed $2\e[0m"
             else
@@ -835,7 +915,7 @@ bpm() {
                             FAILED=$((FAILED+1)); continue
                         fi
                     fi
-                    mv "/tmp/${PKG}.new" "/usr/bin/$PKG"; chmod +x "/usr/bin/$PKG"
+                    mv "/tmp/${PKG}.new" "$INSTALL_BIN/$PKG"; chmod +x "$INSTALL_BIN/$PKG"
                     sed -i "/^$PKG /d" "$PKG_DB" 2>/dev/null
                     echo "$PKG $REMOTE_VER (github)" >> "$PKG_DB"
                     echo -e "\e[1;32m[+] $PKG upgraded to v$REMOTE_VER\e[0m"
@@ -927,6 +1007,7 @@ adduser() {
     mkdir -p "/home/${USERNAME}"
     chmod 700 "/home/${USERNAME}"
     echo "[+] User $USERNAME created (uid=$UID_NUM). Set password: passwd $USERNAME"
+    _persist_etc /etc/passwd /etc/shadow /etc/group
 }
 
 # deluser: Delete a user
@@ -941,6 +1022,7 @@ deluser() {
     echo -n "Remove home directory /home/$USERNAME? (y/N): "
     read -r RMHOME
     [ "$RMHOME" = "y" ] && rm -rf "/home/$USERNAME" && echo "[-] /home/$USERNAME removed."
+    _persist_etc /etc/passwd /etc/shadow /etc/group
 }
 
 # lsusers: List all non-system users
@@ -1080,6 +1162,7 @@ bit_setup() {
     fi
 
     touch /etc/bitos.configured
+    _persist_etc /etc/hostname /etc/passwd /etc/shadow /etc/group /etc/bitos.configured
     echo ""
     echo -e "\e[1;32m[!] Setup complete! Dashboard: http://$(ip addr show eth0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1):80/dashboard.cgi\e[0m"
     echo ""
