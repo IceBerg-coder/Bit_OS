@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # A simple script to demonstrate BitOS packaging
 echo -e "\e[1;36m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\e[0m"
 echo -e "\e[1;36m   Welcome to the BitOS SDK Example   \e[0m"
