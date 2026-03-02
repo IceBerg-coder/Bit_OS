@@ -804,11 +804,27 @@ os.chmod("var/www/boot-log.cgi", 0o755)
 print("[INFO] boot-log.cgi written")
 PYEOF
 
+# Embed package repository signing public key
+log_info "Embedding package signing public key..."
+cat << 'EOF' > etc/bpm_pubkey.pem
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxcrK0K4KAC2OF6QQXJ5o
+8mL2zlPlpO7I78dp2u7SVctvUg9SOx5ks+vRFVnF81lINWSJBMGH2Bzo1vse7ohb
+6jpAbHPk8t+hMSxaaaPoJr5U5SbJQmG72vK0Kszudirgy1jsjz95gHJDWOreVtZM
+KPo5EiaDSr85kvsKnGdEpKbZY/phlxkLod7qL4BLaux7diIBQHDuY5EWa0e5dE26
+VwRXZtZgpt9ymaeIFqMLVgFCeHtBeWyUFNIuhIjFENgrdyPe3Jf21N9DKTxP0DhP
+6uly8lh9cmAS3i3+xRujzLPFTAcOyI6M6otc5csaQ1pFC1FCYgs1RJ1V8jL4NtJI
+cQIDAQAB
+-----END PUBLIC KEY-----
+EOF
+
 log_info "Creating MOTD and profile..."
 cat << 'EOF' > etc/motd
 Welcome to BitOS Professional Edition
   bit_info             - system info
   bpm available        - browse 20 packages
+  bpm install <pkg>    - install package (auto-resolves deps)
+  bpm info <pkg>       - show package details and deps
   svc status           - service manager
   bit-firewall menu    - firewall TUI
   bit-users menu       - user manager TUI
@@ -867,62 +883,86 @@ _persist_etc() {
     [ -d /etc/network ] && cp -r /etc/network/. /home/.config/network/ 2>/dev/null
 }
 
-# bpm: BitOS Package Manager
-bpm() {
-    # GitHub raw URL - packages live in pkgs/ directory of the repo
-    REPO_URL="https://raw.githubusercontent.com/IceBerg-coder/Bit_OS/main/pkgs"
-    PKG_LIST_URL="$REPO_URL/packages.list"
-    # Persistent mode: install to /home/bin and use /home/.config/bpm.db if disk is mounted
+# bpm internal helpers (called by bpm and each other)
+_bpm_paths() {
     if [ -f /home/.persistent ]; then
-        PKG_DB="/home/.config/bpm.db"
-        INSTALL_BIN="/home/bin"
+        BPM_DB="/home/.config/bpm.db"; BPM_BIN="/home/bin"
     else
-        PKG_DB="/etc/bpm.db"
-        INSTALL_BIN="/usr/bin"
+        BPM_DB="/etc/bpm.db"; BPM_BIN="/usr/bin"
     fi
+}
+_bpm_fetch_list() {
+    local REPO="https://raw.githubusercontent.com/IceBerg-coder/Bit_OS/main/pkgs"
+    wget -q --no-check-certificate "$REPO/packages.list" -O /tmp/bpm_pkglist 2>/dev/null || { echo "[!] Cannot reach repository" >&2; return 1; }
+    wget -q --no-check-certificate "$REPO/packages.list.sig" -O /tmp/bpm_pkglist.sig 2>/dev/null
+    if [ -f /etc/bpm_pubkey.pem ] && [ -f /tmp/bpm_pkglist.sig ]; then
+        if openssl dgst -sha256 -verify /etc/bpm_pubkey.pem -signature /tmp/bpm_pkglist.sig /tmp/bpm_pkglist >/dev/null 2>&1; then
+            echo -e "\e[1;32m[\u2713] packages.list signature verified\e[0m" >&2
+        else
+            echo -e "\e[1;31m[!] packages.list signature INVALID — aborting\e[0m" >&2; return 1
+        fi
+    fi
+    cat /tmp/bpm_pkglist
+}
+_bpm_is_installed() { _bpm_paths; grep -q "^$1 " "$BPM_DB" 2>/dev/null; }
+_bpm_install_one() {
+    local PKG="$1" META="$2"
+    _bpm_paths
+    local VER SHA DEPS
+    VER=$(echo  "$META" | awk -v p="$PKG" '$1==p{print $2}')
+    SHA=$(echo  "$META" | awk -v p="$PKG" '$1==p{print $3}')
+    DEPS=$(echo "$META" | awk -v p="$PKG" '$1==p{print $4}')
+    [ -z "$VER" ] && echo -e "\e[1;31m[!] $PKG not found in repository\e[0m" && return 1
+    [ -z "$DEPS" ] && DEPS="-"
+    wget -q --no-check-certificate "https://raw.githubusercontent.com/IceBerg-coder/Bit_OS/main/pkgs/$PKG" -O "/tmp/bpm_dl_$PKG"
+    if [ $? -ne 0 ] || [ ! -s "/tmp/bpm_dl_$PKG" ]; then rm -f "/tmp/bpm_dl_$PKG"; echo -e "\e[1;31m[!] Download failed: $PKG\e[0m"; return 1; fi
+    if [ -n "$SHA" ]; then
+        local ACTUAL; ACTUAL=$(sha256sum "/tmp/bpm_dl_$PKG" | awk '{print $1}')
+        if [ "$ACTUAL" != "$SHA" ]; then rm -f "/tmp/bpm_dl_$PKG"; echo -e "\e[1;31m[!] SHA256 mismatch: $PKG\e[0m  expected: $SHA\n  got: $ACTUAL"; return 1; fi
+        echo -e "\e[1;32m[\u2713] SHA256 verified: $PKG\e[0m"
+    fi
+    mv "/tmp/bpm_dl_$PKG" "$BPM_BIN/$PKG"; chmod +x "$BPM_BIN/$PKG"
+    sed -i "/^$PKG /d" "$BPM_DB" 2>/dev/null
+    echo "$PKG $VER (github) deps:$DEPS" >> "$BPM_DB"
+    echo -e "\e[1;32m[+] Installed $PKG v$VER -> $BPM_BIN\e[0m"
+}
+
+# bpm: BitOS Package Manager (v1.5 - dep-aware, signed repo)
+bpm() {
+    _bpm_paths
+    local PKG_DB="$BPM_DB" INSTALL_BIN="$BPM_BIN"
+    local REPO_URL="https://raw.githubusercontent.com/IceBerg-coder/Bit_OS/main/pkgs"
     
     case "$1" in
         "install")
             [ -z "$2" ] && echo "Usage: bpm install <name>" && return 1
-            echo -e "\e[1;34m[*] Searching for $2...\e[0m"
-            if busybox --list | grep -qx "$2"; then
-                echo -e "\e[1;32m[+] Installing built-in applet: $2\e[0m"
-                ln -sf /bin/busybox "/usr/bin/$2"
-                echo "$2 (builtin)" >> "$PKG_DB"
-                echo -e "\e[1;32m[!] $2 is now available\e[0m"
-            else
-                echo -e "\e[1;33m[-] Checking GitHub repository...\e[0m"
-                wget -q --no-check-certificate "$REPO_URL/$2" -O "/tmp/bpm_dl_$2"
-                if [ $? -eq 0 ] && [ -s "/tmp/bpm_dl_$2" ]; then
-                     # SHA256 verification
-                     REMOTE_META=$(wget -O- -q --no-check-certificate "$PKG_LIST_URL" 2>/dev/null)
-                     PKG_VER=$(echo "$REMOTE_META" | awk -v p="$2" '$1==p{print $2}')
-                     EXPECTED_SUM=$(echo "$REMOTE_META" | awk -v p="$2" '$1==p{print $3}')
-                     [ -z "$PKG_VER" ] && PKG_VER="1.0"
-                     if [ -n "$EXPECTED_SUM" ]; then
-                         ACTUAL_SUM=$(sha256sum "/tmp/bpm_dl_$2" | awk '{print $1}')
-                         if [ "$ACTUAL_SUM" != "$EXPECTED_SUM" ]; then
-                             rm -f "/tmp/bpm_dl_$2"
-                             echo -e "\e[1;31m[!] SHA256 mismatch for $2 — aborting install\e[0m"
-                             echo -e "  expected: $EXPECTED_SUM"
-                             echo -e "  got:      $ACTUAL_SUM"
-                             return 1
-                         fi
-                         echo -e "\e[1;32m[✓] SHA256 verified\e[0m"
-                     fi
-                     mv "/tmp/bpm_dl_$2" "$INSTALL_BIN/$2"
-                     chmod +x "$INSTALL_BIN/$2"
-                     echo "$2 $PKG_VER (github)" >> "$PKG_DB"
-                     echo -e "\e[1;32m[+] Installed $2 v${PKG_VER} -> $INSTALL_BIN\e[0m"
-                     echo "Run: $2"
-                else
-                     rm -f "/tmp/bpm_dl_$2"
-                     echo -e "\e[1;31m[!] Error: $2 not found. Run: bpm available\e[0m"
-                fi
+            echo -e "\e[1;34m[*] Fetching package repository...\e[0m"
+            local META; META=$(_bpm_fetch_list) || return 1
+            # Resolve dependencies first
+            local DEPS; DEPS=$(echo "$META" | awk -v p="$2" '$1==p{print $4}')
+            if [ -n "$DEPS" ] && [ "$DEPS" != "-" ]; then
+                echo -e "\e[1;33m[~] $2 requires: $DEPS\e[0m"
+                local DEP; for DEP in $(echo "$DEPS" | tr ',' ' '); do
+                    if _bpm_is_installed "$DEP"; then
+                        echo -e "  \e[1;32m[=]\e[0m $DEP already installed"
+                    else
+                        echo -e "  \e[1;34m[+]\e[0m Installing dependency: $DEP"
+                        _bpm_install_one "$DEP" "$META" || { echo -e "\e[1;31m[!] Dep failed: $DEP\e[0m"; return 1; }
+                    fi
+                done
             fi
+            echo -e "\e[1;34m[*] Installing $2...\e[0m"
+            _bpm_install_one "$2" "$META"
             ;;
         "remove")
             [ -z "$2" ] && echo "Usage: bpm remove <name>" && return 1
+            # Block removal if another installed package depends on $2
+            local RDEPS; RDEPS=$(grep " deps:.*\b$2\b" "$PKG_DB" 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
+            if [ -n "$RDEPS" ]; then
+                echo -e "\e[1;31m[!] Cannot remove $2 — required by: ${RDEPS}\e[0m"
+                echo "    Remove those packages first."
+                return 1
+            fi
             if [ -f "$INSTALL_BIN/$2" ] || [ -f "/usr/bin/$2" ]; then
                 rm -f "$INSTALL_BIN/$2" "/usr/bin/$2" 2>/dev/null
                 sed -i "/^$2 /d" "$PKG_DB" 2>/dev/null
@@ -934,40 +974,51 @@ bpm() {
         "list")
             echo -e "\e[1;34m--- Installed Packages ---\e[0m"
             if [ -s "$PKG_DB" ]; then
-                printf "  %-20s %-8s %s\n" "NAME" "VERSION" "SOURCE"
-                printf "  %-20s %-8s %s\n" "----" "-------" "------"
+                printf "  \e[1;36m%-20s %-8s %-12s %s\e[0m\n" "NAME" "VERSION" "SOURCE" "DEPS"
+                printf "  %-20s %-8s %-12s %s\n" "----" "-------" "------" "----"
                 while IFS= read -r L; do
+                    local N V S D
                     N=$(echo "$L" | awk '{print $1}')
-                    # Handle both old format "name (src)" and new "name ver (src)"
-                    if echo "$L" | awk '{print $2}' | grep -q '^('; then
-                        V="-"; S=$(echo "$L" | awk '{print $2}')
-                    else
-                        V=$(echo "$L" | awk '{print $2}'); S=$(echo "$L" | awk '{print $3}')
-                    fi
-                    printf "  \e[1;32m%-20s\e[0m \e[1;33m%-8s\e[0m %s\n" "$N" "$V" "$S"
+                    V=$(echo "$L" | awk '{print $2}')
+                    S=$(echo "$L" | awk '{print $3}')
+                    D=$(echo "$L" | grep -o 'deps:[^ ]*' | sed 's/deps://')
+                    [ -z "$D" ] && D="-"
+                    printf "  \e[1;32m%-20s\e[0m \e[1;33m%-8s\e[0m %-12s \e[36m%s\e[0m\n" "$N" "$V" "$S" "$D"
                 done < "$PKG_DB"
             else
                 echo "(none)"
             fi
             ;;
         "available")
-            echo -e "\e[1;34m--- Available Packages in GitHub Repository ---\e[0m"
-            RESULT=$(wget -O- -q --no-check-certificate "$PKG_LIST_URL" 2>/dev/null)
-            if echo "$RESULT" | grep -q "^bit-\|^#"; then
-                printf "  \e[1;36m%-20s %-8s %s\e[0m\n" "NAME" "VERSION" "DESCRIPTION"
-                printf "  %-20s %-8s %s\n" "----" "-------" "-----------"
-                echo "$RESULT" | grep '^bit-' | while IFS= read -r L; do
-                    N=$(echo "$L" | awk '{print $1}')
-                    V=$(echo "$L" | awk '{print $2}')
-                    # field 3 is sha256 (64 chars), description starts at field 4
-                    D=$(echo "$L" | awk '{for(i=4;i<=NF;i++) printf "%s ", $i; print ""}')
-                    printf "  \e[1;32m%-20s\e[0m \e[1;33m%-8s\e[0m %s\n" "$N" "$V" "$D"
-                done
-            else
-                echo -e "\e[1;31mCould not reach GitHub. Check network.\e[0m"
-                echo "DNS test: $(nslookup raw.githubusercontent.com 2>&1 | head -3)"
-                echo "Route: $(route -n 2>/dev/null | grep UG | head -1)"
-            fi
+            echo -e "\e[1;34m--- Available Packages ---\e[0m"
+            local RESULT; RESULT=$(_bpm_fetch_list) || return 1
+            printf "  \e[1;36m%-20s %-8s %-16s %s\e[0m\n" "NAME" "VER" "DEPS" "DESCRIPTION"
+            printf "  %-20s %-8s %-16s %s\n" "----" "---" "----" "-----------"
+            echo "$RESULT" | grep '^bit-' | while IFS= read -r L; do
+                local N V D DESC
+                N=$(echo "$L"    | awk '{print $1}')
+                V=$(echo "$L"    | awk '{print $2}')
+                D=$(echo "$L"    | awk '{print $4}')
+                DESC=$(echo "$L" | awk '{for(i=5;i<=NF;i++) printf "%s ",$i; print ""}')
+                printf "  \e[1;32m%-20s\e[0m \e[1;33m%-8s\e[0m \e[36m%-16s\e[0m %s\n" "$N" "$V" "$D" "$DESC"
+            done
+            ;;
+        "info")
+            [ -z "$2" ] && echo "Usage: bpm info <name>" && return 1
+            local META; META=$(_bpm_fetch_list) || return 1
+            local LINE; LINE=$(echo "$META" | awk -v p="$2" '$1==p')
+            [ -z "$LINE" ] && echo -e "\e[1;31m[!] $2 not found in repository\e[0m" && return 1
+            local V D DESC INST
+            V=$(echo "$LINE"    | awk '{print $2}')
+            D=$(echo "$LINE"    | awk '{print $4}')
+            DESC=$(echo "$LINE" | awk '{for(i=5;i<=NF;i++) printf "%s ",$i; print ""}')
+            INST=$(grep -q "^$2 " "$PKG_DB" 2>/dev/null && echo "yes" || echo "no")
+            echo -e "\e[1;34m┌─ $2 ─────────────────────\e[0m"
+            echo -e "\e[1;34m│\e[0m Version:     \e[1;33m$V\e[0m"
+            echo -e "\e[1;34m│\e[0m Depends:     \e[36m$D\e[0m"
+            echo -e "\e[1;34m│\e[0m Installed:   $([ "$INST" = "yes" ] && echo '\e[1;32myes\e[0m' || echo '\e[1;31mno\e[0m')"
+            echo -e "\e[1;34m│\e[0m Description: $DESC"
+            echo -e "\e[1;34m└──────────────────────────────\e[0m"
             ;;
         "search")
             echo -e "\e[1;34m--- Matching Built-in Applets ---\e[0m"
@@ -976,53 +1027,48 @@ bpm() {
         "upgrade")
             echo -e "\e[1;34m[*] Checking for updates...\e[0m"
             if [ ! -s "$PKG_DB" ]; then echo "(no packages installed)"; return 0; fi
-            REMOTE_LIST=$(wget -O- -q --no-check-certificate "$PKG_LIST_URL" 2>/dev/null)
-            if [ -z "$REMOTE_LIST" ]; then
-                echo -e "\e[1;31m[!] Could not reach repository\e[0m"; return 1
-            fi
-            UPGRADED=0; SKIPPED=0; FAILED=0
+            local REMOTE_LIST; REMOTE_LIST=$(_bpm_fetch_list) || return 1
+            local UPGRADED=0 SKIPPED=0 FAILED=0
             while IFS= read -r LINE; do
-                PKG=$(echo "$LINE" | awk '{print $1}')
-                # Support both old "name (github)" and new "name ver (github)" formats
-                if echo "$LINE" | awk '{print $2}' | grep -q '^('; then
-                    INST_VER="0.0"; SRC=$(echo "$LINE" | awk '{print $2}')
-                else
-                    INST_VER=$(echo "$LINE" | awk '{print $2}'); SRC=$(echo "$LINE" | awk '{print $3}')
-                fi
+                local PKG INST_VER SRC REMOTE_VER PKG_DEPS EXP ACT
+                PKG=$(echo "$LINE"      | awk '{print $1}')
+                INST_VER=$(echo "$LINE" | awk '{print $2}')
+                SRC=$(echo "$LINE"      | awk '{print $3}')
                 [ "$SRC" != "(github)" ] && continue
                 REMOTE_VER=$(echo "$REMOTE_LIST" | awk -v p="$PKG" '$1==p{print $2}')
-                [ -z "$REMOTE_VER" ] && REMOTE_VER="1.0"
-                if [ "$INST_VER" = "$REMOTE_VER" ] && [ "$INST_VER" != "0.0" ]; then
-                    echo -e "[\e[1;32m=\e[0m] $PKG v$INST_VER is up-to-date"
-                    SKIPPED=$((SKIPPED+1)); continue
+                [ -z "$REMOTE_VER" ] && continue
+                if [ "$INST_VER" = "$REMOTE_VER" ]; then
+                    echo -e "[\e[1;32m=\e[0m] $PKG v$INST_VER is up-to-date"; SKIPPED=$((SKIPPED+1)); continue
                 fi
                 echo -e "\e[1;33m[~] Upgrading $PKG ($INST_VER -> $REMOTE_VER)...\e[0m"
                 wget -q --no-check-certificate "$REPO_URL/$PKG" -O "/tmp/${PKG}.new"
                 if [ $? -eq 0 ] && [ -s "/tmp/${PKG}.new" ]; then
-                    # Verify SHA256 on upgrade
-                    EXPECTED_SUM=$(echo "$REMOTE_LIST" | awk -v p="$PKG" '$1==p{print $3}')
-                    if [ -n "$EXPECTED_SUM" ]; then
-                        ACTUAL_SUM=$(sha256sum "/tmp/${PKG}.new" | awk '{print $1}')
-                        if [ "$ACTUAL_SUM" != "$EXPECTED_SUM" ]; then
-                            rm -f "/tmp/${PKG}.new"
-                            echo -e "\e[1;31m[!] SHA256 mismatch for $PKG — skipping\e[0m"
-                            FAILED=$((FAILED+1)); continue
-                        fi
+                    EXP=$(echo "$REMOTE_LIST" | awk -v p="$PKG" '$1==p{print $3}')
+                    PKG_DEPS=$(echo "$REMOTE_LIST" | awk -v p="$PKG" '$1==p{print $4}'); [ -z "$PKG_DEPS" ] && PKG_DEPS="-"
+                    if [ -n "$EXP" ]; then
+                        ACT=$(sha256sum "/tmp/${PKG}.new" | awk '{print $1}')
+                        if [ "$ACT" != "$EXP" ]; then rm -f "/tmp/${PKG}.new"; echo -e "\e[1;31m[!] SHA256 mismatch: $PKG\e[0m"; FAILED=$((FAILED+1)); continue; fi
                     fi
                     mv "/tmp/${PKG}.new" "$INSTALL_BIN/$PKG"; chmod +x "$INSTALL_BIN/$PKG"
                     sed -i "/^$PKG /d" "$PKG_DB" 2>/dev/null
-                    echo "$PKG $REMOTE_VER (github)" >> "$PKG_DB"
-                    echo -e "\e[1;32m[+] $PKG upgraded to v$REMOTE_VER\e[0m"
-                    UPGRADED=$((UPGRADED+1))
+                    echo "$PKG $REMOTE_VER (github) deps:$PKG_DEPS" >> "$PKG_DB"
+                    echo -e "\e[1;32m[+] $PKG upgraded to v$REMOTE_VER\e[0m"; UPGRADED=$((UPGRADED+1))
                 else
-                    rm -f "/tmp/${PKG}.new"
-                    echo -e "\e[1;31m[!] Failed: $PKG\e[0m"; FAILED=$((FAILED+1))
+                    rm -f "/tmp/${PKG}.new"; echo -e "\e[1;31m[!] Failed: $PKG\e[0m"; FAILED=$((FAILED+1))
                 fi
             done < "$PKG_DB"
-            echo -e "\e[1;34m[=] Done. Upgraded: $UPGRADED  Up-to-date: $SKIPPED  Failed: $FAILED\e[0m"
+            echo -e "\e[1;34m[=] Upgraded: $UPGRADED  Up-to-date: $SKIPPED  Failed: $FAILED\e[0m"
             ;;
         *)
-            echo "Usage: bpm [install|remove|list|available|search|upgrade] <name>"
+            echo "bpm - BitOS Package Manager v1.5 (dep-aware, signed repo)"
+            echo "Usage: bpm [install|remove|list|available|info|search|upgrade] <pkg>"
+            echo "  install <pkg>   Install package + auto-install all dependencies"
+            echo "  remove  <pkg>   Remove (blocked if another package depends on it)"
+            echo "  list            Show installed packages with versions and deps"
+            echo "  available       List all packages in the signed repository"
+            echo "  info <pkg>      Package details, version, deps, install status"
+            echo "  search <term>   Search built-in BusyBox applets"
+            echo "  upgrade         Upgrade all installed packages to latest version"
             ;;
     esac
 }
