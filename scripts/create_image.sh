@@ -93,12 +93,16 @@ log_msg "Starting System V Initializer..."
 # Mount critical filesystems
 mount -a
 mkdir -p /dev/pts /dev/shm
+mount -t devpts devpts /dev/pts -o gid=5,mode=620
+mount -t tmpfs tmpfs /dev/shm
 
 # Start hotplug event handler (mdev)
 log_msg "Starting mdev (Device Hotplug Handler)..."
 mdev -s
 # Register mdev only if the kernel supports UEVENT_HELPER
 [ -f /proc/sys/kernel/hotplug ] && echo /sbin/mdev > /proc/sys/kernel/hotplug
+# Ensure ptmx exists for SSH PTY allocation
+[ ! -e /dev/ptmx ] && mknod /dev/ptmx c 5 2 && chmod 666 /dev/ptmx
 
 # Set networking (loopback)
 ifconfig lo 127.0.0.1 up
