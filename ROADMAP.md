@@ -46,29 +46,34 @@
 
 > Move from BusyBox-only to real statically-linked software built against musl libc.
 
-### 2.1 — musl-cross-make Toolchain 🔄
+### 2.1 — musl-cross-make Toolchain ✅
 - `scripts/build_musl_toolchain.sh` — builds `musl-cross-make` → `x86_64-linux-musl-gcc` in `~/musl-cross/`
 - GCC 13.3.0 + musl 1.2.5 + binutils 2.44
-- Sysroot: static `zlib`, `openssl`, `ncurses`, `readline` built in `build/musl-sysroot/`
+- Sysroot: static `zlib 1.3.1`, `openssl 3.3.2`, `ncurses 6.4`, `readline 8.2` built in `build/musl-sysroot/`
 
-### 2.2 — Static Package Builder 🔄
+### 2.2 — Static Package Builder ✅
 - `scripts/build_musl_packages.sh` — per-package build functions, strips + packages + updates `packages.list`
 - Run: `bash scripts/build_musl_packages.sh [all|curl|nano|rsync|htop|jq]`
+- Commit: `9f66e87e8` — v2.0a tag
 
 ### 2.3 — First Wave Packages (musl static)
 
-| Package | Version | Sysroot deps | Status |
-|---------|---------|-------------|--------|
-| `curl` | 8.9.1 | zlib + openssl | 🔄 script ready |
-| `nano` | 7.2 | ncurses | 🔄 script ready |
-| `rsync` | 3.3.0 | — | 🔄 script ready |
-| `htop` | 3.3.0 | ncurses | 🔄 script ready |
-| `jq` | 1.7.1 | oniguruma (builtin) | 🔄 script ready |
-| `nmap` | 7.95 | openssl + pcre | ⏳ planned |
-| `Python 3` | 3.12 | openssl + zlib + readline | ⏳ planned |
-| `git` | 2.44 | openssl + zlib + pcre | ⏳ planned |
-| `vim` | 9.1 | ncurses | ⏳ planned |
-| `strace` | 6.7 | — | ⏳ planned |
+| Package | Version | Sysroot deps | Linking | Status |
+|---------|---------|-------------|---------|--------|
+| `curl` | 8.9.1 | zlib + openssl | musl-dynamic | ✅ shipped |
+| `nano` | 7.2 | ncurses | fully-static | ✅ shipped |
+| `rsync` | 3.4.1 | — | fully-static | ✅ shipped |
+| `htop` | 3.3.0 | ncurses | fully-static | ✅ shipped |
+| `jq` | 1.7.1 | oniguruma (builtin) | musl-dynamic | ✅ shipped |
+| `musl-libc` | 1.2.5 | — | n/a | ⏳ planned (base dep for curl/jq) |
+| `nmap` | 7.95 | openssl + pcre | — | ⏳ planned |
+| `Python 3` | 3.12 | openssl + zlib + readline | — | ⏳ planned |
+| `git` | 2.44 | openssl + zlib + pcre | — | ⏳ planned |
+| `vim` | 9.1 | ncurses | — | ⏳ planned |
+| `strace` | 6.7 | — | — | ⏳ planned |
+
+> **Note:** "musl-dynamic" means the binary links against musl's `libc.so` (the musl dynamic linker `/lib/ld-musl-x86_64.so.1`).
+> These run natively on any musl-based BitOS system. A `musl-libc` base package will be added to provide `ld-musl-x86_64.so.1`.
 
 ### 2.4 — Package Count Sprint
 - Target: 50 packages for v2.0-alpha, 100 for v2.0
