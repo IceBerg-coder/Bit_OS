@@ -545,8 +545,10 @@ bpm() {
                 wget -q --no-check-certificate "$REPO_URL/$2" -O "/usr/bin/$2"
                 if [ $? -eq 0 ] && [ -s "/usr/bin/$2" ]; then
                      chmod +x "/usr/bin/$2"
-                     echo "$2 (github)" >> "$PKG_DB"
-                     echo -e "\e[1;32m[+] Installed $2 from GitHub repository.\e[0m"
+                     PKG_VER=$(wget -O- -q --no-check-certificate "$PKG_LIST_URL" 2>/dev/null | awk -v p="$2" '$1==p{print $2}')
+                     [ -z "$PKG_VER" ] && PKG_VER="1.0"
+                     echo "$2 $PKG_VER (github)" >> "$PKG_DB"
+                     echo -e "\e[1;32m[+] Installed $2 v${PKG_VER} from GitHub repository.\e[0m"
                      echo "Run: $2"
                 else
                      rm -f "/usr/bin/$2"
@@ -566,7 +568,22 @@ bpm() {
             ;;
         "list")
             echo -e "\e[1;34m--- Installed Packages ---\e[0m"
-            if [ -s "$PKG_DB" ]; then cat "$PKG_DB"; else echo "(none)"; fi
+            if [ -s "$PKG_DB" ]; then
+                printf "  %-20s %-8s %s\n" "NAME" "VERSION" "SOURCE"
+                printf "  %-20s %-8s %s\n" "----" "-------" "------"
+                while IFS= read -r L; do
+                    N=$(echo "$L" | awk '{print $1}')
+                    # Handle both old format "name (src)" and new "name ver (src)"
+                    if echo "$L" | awk '{print $2}' | grep -q '^('; then
+                        V="-"; S=$(echo "$L" | awk '{print $2}')
+                    else
+                        V=$(echo "$L" | awk '{print $2}'); S=$(echo "$L" | awk '{print $3}')
+                    fi
+                    printf "  \e[1;32m%-20s\e[0m \e[1;33m%-8s\e[0m %s\n" "$N" "$V" "$S"
+                done < "$PKG_DB"
+            else
+                echo "(none)"
+            fi
             ;;
         "available")
             echo -e "\e[1;34m--- Available Packages in GitHub Repository ---\e[0m"
@@ -584,34 +601,103 @@ bpm() {
             busybox --list | grep "${2:-.}"
             ;;
         "upgrade")
-            echo -e "\e[1;34m[*] Upgrading all GitHub-installed packages...\e[0m"
-            if [ ! -s "$PKG_DB" ]; then
-                echo "(no packages installed)"
-                return 0
+            echo -e "\e[1;34m[*] Checking for updates...\e[0m"
+            if [ ! -s "$PKG_DB" ]; then echo "(no packages installed)"; return 0; fi
+            REMOTE_LIST=$(wget -O- -q --no-check-certificate "$PKG_LIST_URL" 2>/dev/null)
+            if [ -z "$REMOTE_LIST" ]; then
+                echo -e "\e[1;31m[!] Could not reach repository\e[0m"; return 1
             fi
-            UPGRADED=0; FAILED=0
+            UPGRADED=0; SKIPPED=0; FAILED=0
             while IFS= read -r LINE; do
                 PKG=$(echo "$LINE" | awk '{print $1}')
-                SRC=$(echo "$LINE" | awk '{print $2}')
+                # Support both old "name (github)" and new "name ver (github)" formats
+                if echo "$LINE" | awk '{print $2}' | grep -q '^('; then
+                    INST_VER="0.0"; SRC=$(echo "$LINE" | awk '{print $2}')
+                else
+                    INST_VER=$(echo "$LINE" | awk '{print $2}'); SRC=$(echo "$LINE" | awk '{print $3}')
+                fi
                 [ "$SRC" != "(github)" ] && continue
-                echo -e "\e[1;33m[~] Upgrading $PKG...\e[0m"
+                REMOTE_VER=$(echo "$REMOTE_LIST" | awk -v p="$PKG" '$1==p{print $2}')
+                [ -z "$REMOTE_VER" ] && REMOTE_VER="1.0"
+                if [ "$INST_VER" = "$REMOTE_VER" ] && [ "$INST_VER" != "0.0" ]; then
+                    echo -e "[\e[1;32m=\e[0m] $PKG v$INST_VER is up-to-date"
+                    SKIPPED=$((SKIPPED+1)); continue
+                fi
+                echo -e "\e[1;33m[~] Upgrading $PKG ($INST_VER -> $REMOTE_VER)...\e[0m"
                 wget -q --no-check-certificate "$REPO_URL/$PKG" -O "/tmp/${PKG}.new"
                 if [ $? -eq 0 ] && [ -s "/tmp/${PKG}.new" ]; then
-                    mv "/tmp/${PKG}.new" "/usr/bin/$PKG"
-                    chmod +x "/usr/bin/$PKG"
-                    echo -e "\e[1;32m[+] $PKG upgraded\e[0m"
+                    mv "/tmp/${PKG}.new" "/usr/bin/$PKG"; chmod +x "/usr/bin/$PKG"
+                    sed -i "/^$PKG /d" "$PKG_DB" 2>/dev/null
+                    echo "$PKG $REMOTE_VER (github)" >> "$PKG_DB"
+                    echo -e "\e[1;32m[+] $PKG upgraded to v$REMOTE_VER\e[0m"
                     UPGRADED=$((UPGRADED+1))
                 else
                     rm -f "/tmp/${PKG}.new"
-                    echo -e "\e[1;31m[!] Failed to upgrade $PKG\e[0m"
-                    FAILED=$((FAILED+1))
+                    echo -e "\e[1;31m[!] Failed: $PKG\e[0m"; FAILED=$((FAILED+1))
                 fi
             done < "$PKG_DB"
-            echo -e "\e[1;34m[=] Done. Upgraded: $UPGRADED  Failed: $FAILED\e[0m"
+            echo -e "\e[1;34m[=] Done. Upgraded: $UPGRADED  Up-to-date: $SKIPPED  Failed: $FAILED\e[0m"
             ;;
         *)
             echo "Usage: bpm [install|remove|list|available|search|upgrade] <name>"
             ;;
+    esac
+}
+
+# svc: Service Manager
+svc() {
+    _svc_pid() {
+        local NAME="$1" PF="$2"
+        if [ -n "$PF" ] && [ -f "$PF" ]; then cat "$PF" 2>/dev/null
+        else pidof "$NAME" 2>/dev/null | awk '{print $1}'; fi
+    }
+    _svc_running() { local P; P=$(_svc_pid "$1" "$2"); [ -n "$P" ] && kill -0 "$P" 2>/dev/null; }
+    _svc_do() {
+        local NAME="$1" ACT="$2" PF START STOP
+        case "$NAME" in
+            sshd)    PF="/var/run/sshd.pid";  START="/usr/sbin/sshd";                               STOP="kill \$(cat $PF)" ;;
+            httpd)   PF="";                    START="httpd -p 80 -h /var/www -c /etc/httpd.conf"; STOP="killall httpd" ;;
+            crond)   PF="";                    START="crond -b -l 8 -L /var/log/cron.log";         STOP="killall crond" ;;
+            telnetd) PF="";                    START="telnetd -l /bin/sh";                         STOP="killall telnetd" ;;
+            syslogd) PF="";                    START="syslogd -S -b 7 -s 200 -O /var/log/messages"; STOP="killall syslogd" ;;
+            *) echo "[!] Unknown service '$NAME'. Known: sshd httpd crond telnetd syslogd"; return 1 ;;
+        esac
+        case "$ACT" in
+            start)
+                if _svc_running "$NAME" "$PF"; then
+                    echo -e "[\e[1;33m$NAME\e[0m] already running (pid: $(_svc_pid $NAME $PF))"
+                else
+                    eval "$START" && echo -e "[\e[1;32m$NAME\e[0m] started" || echo -e "[\e[1;31m$NAME\e[0m] failed to start"
+                fi ;;
+            stop)
+                if _svc_running "$NAME" "$PF"; then
+                    eval "$STOP" 2>/dev/null && echo -e "[\e[1;33m$NAME\e[0m] stopped" || echo -e "[\e[1;31m$NAME\e[0m] stop failed"
+                else
+                    echo -e "[\e[1;33m$NAME\e[0m] not running"
+                fi ;;
+            restart) _svc_do "$NAME" stop; sleep 1; _svc_do "$NAME" start ;;
+            status)
+                if _svc_running "$NAME" "$PF"; then
+                    echo -e "  [\e[1;32m running \e[0m] $NAME  (pid: $(_svc_pid $NAME $PF))"
+                else
+                    echo -e "  [\e[1;31m stopped \e[0m] $NAME"
+                fi ;;
+        esac
+    }
+    local ACT="$1"; shift
+    case "$ACT" in
+        start|stop|restart|status)
+            if [ -z "$1" ]; then
+                [ "$ACT" = "status" ] && echo -e "\e[1;34m--- Service Status ---\e[0m"
+                for S in sshd httpd crond telnetd syslogd; do _svc_do "$S" "$ACT"; done
+            else
+                for S in "$@"; do _svc_do "$S" "$ACT"; done
+            fi ;;
+        *)
+            echo "Usage: svc [start|stop|restart|status] [service...]"
+            echo "       svc status          - show all services"
+            echo "       svc restart sshd    - restart specific service"
+            echo "Services: sshd  httpd  crond  telnetd  syslogd" ;;
     esac
 }
 
@@ -698,8 +784,73 @@ bit_install() {
     umount /mnt
 }
 
+# bit-setup: First-boot configuration wizard
+bit_setup() {
+    echo -e "\e[1;34m"
+    echo "  ____  _ _    ___  ____    ____       _               "
+    echo " | __ )(_) |_ / _ \/ ___|  / ___|  ___| |_ _   _ _ __  "
+    echo " |  _ \| | __| | | \___ \  \___ \ / _ \ __| | | | '_ \ "
+    echo " | |_) | | |_| |_| |___) |  ___) |  __/ |_| |_| | |_) |"
+    echo " |____/|_|\__|\___/|____/  |____/ \___|\__|\__,_| .__/ "
+    echo "                                                  |_|    "
+    echo -e "\e[0m"
+    echo -e "\e[1;33mFirst-Boot Setup Wizard\e[0m"
+    echo "-------------------------------------------"
+
+    # Hostname
+    echo -n "Hostname [$( hostname )]: "
+    read -r NEW_HOST
+    if [ -n "$NEW_HOST" ]; then
+        echo "$NEW_HOST" > /etc/hostname
+        hostname "$NEW_HOST"
+        echo -e "\e[1;32m[+] Hostname set to: $NEW_HOST\e[0m"
+    fi
+
+    # Root password
+    echo -n "Set root password? (y/N): "
+    read -r DO_PASS
+    [ "$DO_PASS" = "y" ] && passwd root
+
+    # Services
+    echo ""
+    echo -e "\e[1;34mEnable/disable services:\e[0m"
+    for SVC in sshd telnetd crond; do
+        echo -n "  Enable $SVC? (Y/n): "
+        read -r EN
+        if [ "$EN" = "n" ]; then
+            svc stop "$SVC" 2>/dev/null
+            echo -e "  \e[1;33m[-] $SVC disabled\e[0m"
+        else
+            svc start "$SVC" 2>/dev/null
+            echo -e "  \e[1;32m[+] $SVC enabled\e[0m"
+        fi
+    done
+
+    # Timezone
+    echo ""
+    echo -n "Timezone (e.g. UTC, Asia/Yangon) [UTC]: "
+    read -r TZ_NAME
+    if [ -n "$TZ_NAME" ] && [ -f "/usr/share/zoneinfo/$TZ_NAME" ]; then
+        cp "/usr/share/zoneinfo/$TZ_NAME" /etc/localtime
+        echo "$TZ_NAME" > /etc/timezone
+        echo -e "\e[1;32m[+] Timezone set to $TZ_NAME\e[0m"
+    else
+        echo -e "\e[1;33m[=] Keeping UTC\e[0m"
+    fi
+
+    touch /etc/bitos.configured
+    echo ""
+    echo -e "\e[1;32m[!] Setup complete! Dashboard: http://$(ip addr show eth0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1):80/dashboard.cgi\e[0m"
+    echo ""
+}
+
 # Show system info on login
 bit_info
+
+# First-boot: prompt setup wizard if not yet configured
+if [ ! -f /etc/bitos.configured ]; then
+    echo -e "\e[1;33m[!] BitOS not yet configured. Run 'bit_setup' to configure.\e[0m"
+fi
 EOF
 
 log_info "Creating legacy init symlink..."
