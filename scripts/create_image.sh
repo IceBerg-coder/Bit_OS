@@ -56,9 +56,33 @@ else
     log_info "socat not found — HTTPS will be skipped (run: sudo apt-get install socat)"
 fi
 
+log_info "Copying socat + openssl for HTTPS..."
+if [ -f "/usr/bin/socat1" ]; then
+    cp /usr/bin/socat1 usr/bin/socat
+    ln -sf /usr/bin/socat usr/bin/socat1
+    chmod +x usr/bin/socat
+    # Copy socat's shared lib dependencies
+    for lib in libssl.so.3 libcrypto.so.3 libwrap.so.0 libz.so.1 libzstd.so.1; do
+        src="/lib/x86_64-linux-gnu/$lib"
+        [ ! -f "$src" ] && src="/usr/lib/x86_64-linux-gnu/$lib"
+        [ -f "$src" ] && cp "$src" lib/x86_64-linux-gnu/ && echo "  + $lib"
+    done
+    log_info "socat installed: $(ls -lh usr/bin/socat)"
+else
+    log_info "socat not found — HTTPS will be skipped (run: sudo apt-get install socat)"
+fi
+
 if [ -f "/usr/bin/openssl" ]; then
     cp /usr/bin/openssl usr/bin/openssl
     chmod +x usr/bin/openssl
+    # openssl requires its config file to generate certs
+    mkdir -p etc/ssl
+    cp /etc/ssl/openssl.cnf etc/ssl/openssl.cnf 2>/dev/null || true
+    # Also copy CA certs directory for SSL verification
+    if [ -d /etc/ssl/certs ]; then
+        mkdir -p etc/ssl/certs
+        cp /etc/ssl/certs/ca-certificates.crt etc/ssl/certs/ 2>/dev/null || true
+    fi
     log_info "openssl installed: $(ls -lh usr/bin/openssl)"
 fi
 
@@ -369,6 +393,8 @@ cat << 'EOF' > etc/rcS.d/S55-https
 # Start HTTPS via socat if cert exists
 CERT_DIR="/etc/ssl/bitos"
 PEM="$CERT_DIR/bitos.pem"
+LOG="/var/log/https-setup.log"
+
 if ! command -v socat >/dev/null 2>&1; then
     echo "socat not found, skipping HTTPS"
     exit 0
@@ -376,20 +402,47 @@ fi
 if [ ! -f "$PEM" ]; then
     echo "Generating self-signed TLS certificate..."
     mkdir -p "$CERT_DIR"
-    HOSTNAME=$(hostname)
-    openssl req -x509 -nodes -newkey rsa:2048 \
-        -keyout "$CERT_DIR/bitos.key" \
-        -out "$CERT_DIR/bitos.crt" \
-        -days 3650 \
-        -subj "/CN=$HOSTNAME/O=BitOS/C=US" 2>/dev/null
-    cat "$CERT_DIR/bitos.crt" "$CERT_DIR/bitos.key" > "$PEM"
-    chmod 600 "$CERT_DIR/bitos.key" "$PEM"
-    echo "Certificate generated: $PEM"
+    CN=$(hostname)
+    [ -z "$CN" ] && CN="bitos"
+    # openssl.cnf must exist; fall back to /dev/null approach if missing
+    if [ -f /etc/ssl/openssl.cnf ]; then
+        OPENSSL_CONF=/etc/ssl/openssl.cnf \
+        openssl req -x509 -nodes -newkey rsa:2048 \
+            -keyout "$CERT_DIR/bitos.key" \
+            -out   "$CERT_DIR/bitos.crt" \
+            -days 3650 \
+            -subj "/CN=$CN/O=BitOS/C=US" > "$LOG" 2>&1
+    else
+        # Minimal config inline
+        cat > /tmp/openssl-min.cnf << CNFEOF
+[req]
+distinguished_name=req
+[san]
+subjectAltName=DNS:$CN
+CNFEOF
+        OPENSSL_CONF=/tmp/openssl-min.cnf \
+        openssl req -x509 -nodes -newkey rsa:2048 \
+            -keyout "$CERT_DIR/bitos.key" \
+            -out   "$CERT_DIR/bitos.crt" \
+            -days 3650 \
+            -subj "/CN=$CN/O=BitOS/C=US" > "$LOG" 2>&1
+    fi
+    if [ $? -eq 0 ] && [ -s "$CERT_DIR/bitos.crt" ] && [ -s "$CERT_DIR/bitos.key" ]; then
+        cat "$CERT_DIR/bitos.crt" "$CERT_DIR/bitos.key" > "$PEM"
+        chmod 600 "$CERT_DIR/bitos.key" "$PEM"
+        echo "Certificate generated: $PEM"
+    else
+        echo "[!] Certificate generation failed (see $LOG):"
+        cat "$LOG" 2>/dev/null | head -5
+        exit 1
+    fi
 fi
-if [ -f "$PEM" ]; then
+if [ -s "$PEM" ]; then
     socat OPENSSL-LISTEN:443,cert="$PEM",verify=0,reuseaddr,fork \
-        TCP:127.0.0.1:80 &
+        TCP:127.0.0.1:80 >> "$LOG" 2>&1 &
     echo "HTTPS server started on port 443 (socat -> httpd:80)"
+else
+    echo "[!] PEM file missing or empty, HTTPS not started"
 fi
 EOF
 chmod +x etc/rcS.d/S55-https
