@@ -14,6 +14,16 @@ log_info "Creating standard Linux directory structure..."
 mkdir -pv dev proc sys tmp etc home bin sbin usr/bin usr/sbin etc/init.d lib/modules/6.6.15
 mkdir -pv var/log var/run var/spool/cron/crontabs etc/rcS.d var/www etc/ssh lib/x86_64-linux-gnu lib64 var/empty run usr/lib/openssh usr/lib/x86_64-linux-gnu/xtables etc/ssl/bitos var/containers
 
+log_info "Pre-bundling musl dynamic linker..."
+MUSL_LIBC_SRC="${MUSL_TOOLCHAIN_DIR:-$HOME/musl-cross}/x86_64-linux-musl/lib/libc.so"
+if [ -f "$MUSL_LIBC_SRC" ]; then
+    cp "$MUSL_LIBC_SRC" lib/ld-musl-x86_64.so.1
+    chmod 755 lib/ld-musl-x86_64.so.1
+    log_info "  + lib/ld-musl-x86_64.so.1 ($(du -sh lib/ld-musl-x86_64.so.1 | awk '{print $1}')) — musl runtime for bpm packages"
+else
+    log_info "  (musl toolchain not found — skipping; curl/jq will fail until bpm install musl-libc)"
+fi
+
 log_info "Copying OpenSSH server..."
 if [ -f "$BUILD_DIR/openssh/sbin/sshd" ]; then
     cp "$BUILD_DIR/openssh/sbin/sshd"        usr/sbin/sshd
@@ -840,6 +850,7 @@ export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/home/bin
 export PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
 export HISTFILE=$HOME/.sh_history
 export HISTSIZE=1000
+export TERM=xterm
 alias ls='ls --color=auto'
 alias ll='ls -al'
 alias la='ls -A'

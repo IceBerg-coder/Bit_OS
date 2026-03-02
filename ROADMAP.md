@@ -65,7 +65,7 @@
 | `rsync` | 3.4.1 | — | fully-static | ✅ shipped |
 | `htop` | 3.3.0 | ncurses | fully-static | ✅ shipped |
 | `jq` | 1.7.1 | oniguruma (builtin) | musl-dynamic | ✅ shipped |
-| `musl-libc` | 1.2.5 | — | n/a | ⏳ planned (base dep for curl/jq) |
+| `musl-libc` | 1.2.5 | — | n/a | ✅ shipped — pre-bundled in initramfs at `/lib/ld-musl-x86_64.so.1` |
 | `nmap` | 7.95 | openssl + pcre | — | ⏳ planned |
 | `Python 3` | 3.12 | openssl + zlib + readline | — | ⏳ planned |
 | `git` | 2.44 | openssl + zlib + pcre | — | ⏳ planned |
@@ -73,7 +73,8 @@
 | `strace` | 6.7 | — | — | ⏳ planned |
 
 > **Note:** "musl-dynamic" means the binary links against musl's `libc.so` (the musl dynamic linker `/lib/ld-musl-x86_64.so.1`).
-> These run natively on any musl-based BitOS system. A `musl-libc` base package will be added to provide `ld-musl-x86_64.so.1`.
+> `ld-musl-x86_64.so.1` is pre-bundled in the initramfs by `create_image.sh` — curl and jq work out-of-the-box after bpm install.
+> `TERM=xterm` set in `/etc/profile` — ncurses apps (htop, nano) work correctly in the QEMU console.
 
 ### 2.4 — Package Count Sprint
 - Target: 50 packages for v2.0-alpha, 100 for v2.0
