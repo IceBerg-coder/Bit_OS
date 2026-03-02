@@ -42,36 +42,37 @@
 
 ---
 
-## Phase 2 — Real Userspace `v2.0` *(1–3 months)*
+## Phase 2 — Real Userspace `v2.0` 🔄 *IN PROGRESS*
 
-> The biggest single leap — move from BusyBox-only to a proper software stack.
+> Move from BusyBox-only to real statically-linked software built against musl libc.
 
-### 2.1 — musl libc Base
-- Replace uClibc-ng (BusyBox internal) with **musl libc** as the system libc
-- Enables compiling real software natively inside BitOS
-- Chosen over glibc for size (~640KB), MIT license, clean ABI — same as Alpine Linux
+### 2.1 — musl-cross-make Toolchain 🔄
+- `scripts/build_musl_toolchain.sh` — builds `musl-cross-make` → `x86_64-linux-musl-gcc` in `~/musl-cross/`
+- GCC 13.2.0 + musl 1.2.5 + binutils 2.42
+- Sysroot: static `zlib`, `openssl`, `ncurses`, `readline` built in `build/musl-sysroot/`
 
-### 2.2 — Native C Toolchain
-- Cross-compile `gcc` + `binutils` + `make` targeting musl
-- Bundle as optional `dev-tools` meta-package (~30MB)
-- Allows building any software from source inside BitOS
+### 2.2 — Static Package Builder 🔄
+- `scripts/build_musl_packages.sh` — per-package build functions, strips + packages + updates `packages.list`
+- Run: `bash scripts/build_musl_packages.sh [all|curl|nano|rsync|htop|jq]`
 
-### 2.3 — Package Count Sprint to 100
+### 2.3 — First Wave Packages (musl static)
 
-| Category | Target Packages |
-|---|---|
-| Editors | `vim`, `nano`, `sed`, `awk` (real GNU versions) |
-| Network | `curl`, `wget`, `nmap`, `tcpdump`, `netcat` |
-| Scripting | `Python 3` (musl static), `Lua` |
-| Crypto/TLS | `ca-certificates`, `gnupg` |
-| Filesystem | `rsync`, `lsof`, `strace`, `file` |
-| Compression | `xz`, `bzip2`, `zstd`, `unzip` |
-| Dev | `git`, `patch`, `diffutils` |
+| Package | Version | Sysroot deps | Status |
+|---------|---------|-------------|--------|
+| `curl` | 8.9.1 | zlib + openssl | 🔄 script ready |
+| `nano` | 7.2 | ncurses | 🔄 script ready |
+| `rsync` | 3.3.0 | — | 🔄 script ready |
+| `htop` | 3.3.0 | ncurses | 🔄 script ready |
+| `jq` | 1.7.1 | oniguruma (builtin) | 🔄 script ready |
+| `nmap` | 7.95 | openssl + pcre | ⏳ planned |
+| `Python 3` | 3.12 | openssl + zlib + readline | ⏳ planned |
+| `git` | 2.44 | openssl + zlib + pcre | ⏳ planned |
+| `vim` | 9.1 | ncurses | ⏳ planned |
+| `strace` | 6.7 | — | ⏳ planned |
 
-### 2.4 — Package Signing (GPG)
-- Generate a BitOS repo signing key
-- Sign `packages.list` → `packages.list.sig`
-- `bpm install` verifies GPG sig before SHA256 content check
+### 2.4 — Package Count Sprint
+- Target: 50 packages for v2.0-alpha, 100 for v2.0
+- Add `bit-curl`, `bit-fetch` wrappers for curl integration in bpm workflow
 
 **Milestone: v2.0** — musl libc + 100 packages + gcc toolchain
 
@@ -187,7 +188,7 @@ on: push to main
 |---------|------|--------|
 | **v1.2** | Persistent root FS + netconf boot hook + GRUB EFI | ✅ Done |
 | **v1.5** | Dep-aware bpm + RSA-signed repo + boot splash + `bpm info` | ✅ Done |
-| **v2.0** | musl libc + 100 packages + gcc toolchain | 3 months |
+| **v2.0** | musl toolchain + static pkgs (curl, nano, rsync, htop, jq) + 50+ packages | 🔄 In Progress |
 | **v2.5** | s6 init + eudev + structured logging | 5 months |
 | **v3.0** | PAM + sudo + hardened kernel + AppArmor | 8 months |
 | **v3.5** | Wayland desktop + display manager *(optional)* | 12 months |
@@ -202,6 +203,7 @@ on: push to main
 | ISO size | 21MB | 50MB | 500MB+ |
 | Packages | 20 | 10,000+ | 59,000+ |
 | libc | uClibc-ng (BusyBox) | musl | glibc |
+| Static real pkgs | 🔄 curl/nano/rsync/htop/jq | ✅ | ✅ |
 | Init | BusyBox init | OpenRC | systemd |
 | Root FS | RAM only | overlayfs / disk | disk |
 | SSH | ✅ OpenSSH 9.9p2 | ✅ | ✅ |
