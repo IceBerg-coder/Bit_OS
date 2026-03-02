@@ -642,6 +642,7 @@ cat << HTML
   <span class="logo">&#9608;&#9608;</span>
   <h1>BitOS Professional Edition</h1>
   <span class="sub">Dashboard &mdash; auto-refresh every 10s</span>
+  <a href="/boot-log.cgi" style="margin-left:auto;color:#58a6ff;text-decoration:none;font-size:0.85em;padding:6px 14px;border:1px solid #30363d;border-radius:4px;">Boot Log</a>
 </div>
 <div class="grid">
 
@@ -706,6 +707,100 @@ cat << HTML
 HTML
 CGIEOF
 chmod +x var/www/dashboard.cgi
+
+# Boot log viewer
+cat << 'CGIEOF' > var/www/boot-log.cgi
+#!/bin/sh
+echo "Content-Type: text/html"
+echo ""
+HOSTNAME=$(hostname 2>/dev/null || echo "bitos")
+cat << HTML
+<!DOCTYPE html>
+<html>
+<head>
+<title>BitOS Boot Log - $HOSTNAME</title>
+<meta charset="utf-8">
+<style>
+  body { background: #0d1117; color: #c9d1d9; font-family: 'Courier New', monospace; margin: 0; padding: 0; }
+  .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 32px; display: flex; align-items: center; gap: 16px; }
+  .header h1 { color: #3fb950; margin: 0; font-size: 1.4em; }
+  .nav { margin-left: auto; }
+  .nav a { color: #58a6ff; text-decoration: none; font-size: 0.9em; padding: 6px 14px; border: 1px solid #30363d; border-radius: 4px; }
+  .nav a:hover { background: #21262d; }
+  .toolbar { padding: 12px 32px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #21262d; }
+  .btn { background: #238636; color: #fff; border: none; padding: 7px 18px; border-radius: 5px; cursor: pointer; font-family: monospace; font-size: 0.9em; }
+  .btn:hover { background: #2ea043; }
+  .btn-secondary { background: #21262d; border: 1px solid #30363d; }
+  .btn-secondary:hover { background: #30363d; }
+  .section { margin: 0 32px 24px 32px; }
+  .section-title { color: #58a6ff; font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #21262d; padding: 16px 0 8px 0; margin-bottom: 0; }
+  pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 16px; margin: 0; overflow-x: auto; font-size: 0.82em; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
+  .ok   { color: #3fb950; }
+  .fail { color: #f85149; }
+  .footer { text-align: center; color: #484f58; font-size: 0.8em; padding: 16px; }
+  #copied { color: #3fb950; font-size: 0.85em; display: none; }
+</style>
+</head>
+<body>
+<div class="header">
+  <span style="color:#3fb950;font-size:1.2em">&#9608;&#9608;</span>
+  <h1>BitOS Boot Log</h1>
+  <div class="nav"><a href="/dashboard.cgi">&larr; Dashboard</a></div>
+</div>
+<div class="toolbar">
+  <button class="btn" onclick="copyLog()">&#128203; Copy All</button>
+  <button class="btn btn-secondary" onclick="location.reload()">&#8635; Refresh</button>
+  <span id="copied">&#10003; Copied!</span>
+</div>
+HTML
+
+# Service logs section
+echo '<div class="section"><div class="section-title">Service Boot Logs</div><pre id="svc-log">'
+for logfile in /tmp/boot-*.log; do
+  [ -f "$logfile" ] || continue
+  NAME=$(basename "$logfile" .log | sed 's/boot-//')
+  printf '<span class="ok">### %s ###</span>\n' "$NAME"
+  cat "$logfile" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+  echo
+done
+echo '</pre></div>'
+
+# dmesg section
+echo '<div class="section"><div class="section-title">Kernel Ring Buffer (dmesg)</div><pre id="dmesg-log">'
+dmesg 2>/dev/null | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+echo '</pre></div>'
+
+cat << HTML
+<div class="footer">BitOS &mdash; $(date '+%Y-%m-%d %H:%M:%S')</div>
+<script>
+function copyLog() {
+  var text = '';
+  var svc = document.getElementById('svc-log');
+  var dmsg = document.getElementById('dmesg-log');
+  if (svc)  text += '=== SERVICE BOOT LOGS ===\n' + svc.innerText + '\n';
+  if (dmsg) text += '=== KERNEL DMESG ===\n'    + dmsg.innerText;
+  navigator.clipboard.writeText(text).then(function() {
+    var el = document.getElementById('copied');
+    el.style.display = 'inline';
+    setTimeout(function(){ el.style.display = 'none'; }, 2000);
+  }).catch(function() {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    var el = document.getElementById('copied');
+    el.style.display = 'inline';
+    setTimeout(function(){ el.style.display = 'none'; }, 2000);
+  });
+}
+</script>
+</body>
+</html>
+HTML
+CGIEOF
+chmod +x var/www/boot-log.cgi
 
 log_info "Creating MOTD and profile..."
 chmod +x etc/init.d/rcS
