@@ -381,6 +381,19 @@ done
 EOF
 chmod +x etc/rcS.d/S02-netconf
 
+cat << 'EOF' > etc/rcS.d/S05-hostname
+#!/bin/sh
+# Set hostname early so services like httpd report the correct name
+if [ -f /etc/hostname ]; then
+    hostname -F /etc/hostname
+    echo "Hostname set to: $(hostname)"
+else
+    hostname bitos
+    echo "Hostname set to: bitos (default)"
+fi
+EOF
+chmod +x etc/rcS.d/S05-hostname
+
 cat << 'EOF' > etc/rcS.d/S10-depmod
 #!/bin/sh
 echo "Loading basic kernel modules..."
