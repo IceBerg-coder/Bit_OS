@@ -12,17 +12,69 @@ cp -rv "$SRC_DIR/busybox-$BUSYBOX_VERSION/_install/"* .
 
 log_info "Creating standard Linux directory structure..."
 mkdir -pv dev proc sys tmp etc home bin sbin usr/bin usr/sbin etc/init.d lib/modules/6.6.15
-mkdir -pv var/log var/run var/spool/cron/crontabs etc/rcS.d var/www etc/dropbear
+mkdir -pv var/log var/run var/spool/cron/crontabs etc/rcS.d var/www etc/ssh lib/x86_64-linux-gnu lib64 var/empty run usr/lib/openssh usr/lib/x86_64-linux-gnu/xtables
 
-log_info "Copying Dropbear SSH server..."
-if [ -f "$BUILD_DIR/dropbear/sbin/dropbear" ]; then
-    cp "$BUILD_DIR/dropbear/sbin/dropbear"    usr/sbin/dropbear
-    cp "$BUILD_DIR/dropbear/bin/dropbearkey"  usr/bin/dropbearkey
-    chmod +x usr/sbin/dropbear usr/bin/dropbearkey
-    log_info "Dropbear installed: $(ls -lh usr/sbin/dropbear)"
+log_info "Copying OpenSSH server..."
+if [ -f "$BUILD_DIR/openssh/sbin/sshd" ]; then
+    cp "$BUILD_DIR/openssh/sbin/sshd"        usr/sbin/sshd
+    cp "$BUILD_DIR/openssh/bin/ssh-keygen"   usr/bin/ssh-keygen
+    cp "$BUILD_DIR/openssh/libexec/sshd-session" usr/lib/openssh/sshd-session
+    chmod +x usr/sbin/sshd usr/bin/ssh-keygen usr/lib/openssh/sshd-session
+    log_info "Copying bundled shared libs..."
+    cp -v "$BUILD_DIR/openssh/libs/"*.so*    lib/x86_64-linux-gnu/ 2>/dev/null || true
+    # Copy dynamic linker to lib64
+    if [ -f "$BUILD_DIR/openssh/libs/ld-linux-x86-64.so.2" ]; then
+        cp "$BUILD_DIR/openssh/libs/ld-linux-x86-64.so.2" lib64/
+    fi
+    log_info "OpenSSH sshd installed: $(ls -lh usr/sbin/sshd)"
 else
-    log_err "Dropbear not found! Run: bash scripts/build_dropbear.sh first"
+    log_err "OpenSSH not found! Run: bash scripts/build_openssh.sh first"
 fi
+
+log_info "Copying iptables (legacy)..."
+IPTABLES_BIN="/usr/sbin/xtables-legacy-multi"
+if [ -f "$IPTABLES_BIN" ]; then
+    cp "$IPTABLES_BIN" usr/sbin/iptables
+    chmod +x usr/sbin/iptables
+    # Core iptables libs
+    for lib in libxtables.so.12 libip4tc.so.2 libip6tc.so.2; do
+        src="/usr/lib/x86_64-linux-gnu/$lib"
+        [ -f "$src" ] && cp "$src" lib/x86_64-linux-gnu/ && echo "  + $lib"
+    done
+    # xtables match/target extensions (needed by the firewall rules)
+    XTDIR="/usr/lib/x86_64-linux-gnu/xtables"
+    for ext in libxt_standard.so libxt_conntrack.so libxt_tcp.so libipt_icmp.so libxt_REJECT.so libxt_LOG.so libxt_recent.so libxt_limit.so; do
+        [ -f "$XTDIR/$ext" ] && cp "$XTDIR/$ext" usr/lib/x86_64-linux-gnu/xtables/ && echo "  + $ext"
+    done
+    # libxt_state.so is just a symlink to libxt_conntrack.so
+    ln -sf libxt_conntrack.so usr/lib/x86_64-linux-gnu/xtables/libxt_state.so
+    log_info "iptables installed: $(ls -lh usr/sbin/iptables)"
+else
+    log_err "xtables-legacy-multi not found! Run: sudo apt-get install iptables"
+fi
+
+log_info "Creating sshd_config..."
+cat << 'SSHEOF' > etc/ssh/sshd_config
+Port 22
+PermitRootLogin yes
+PermitEmptyPasswords yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PrintMotd no
+StrictModes no
+PidFile /var/run/sshd.pid
+MaxAuthTries 3
+LoginGraceTime 30
+Banner /etc/issue.net
+SSHEOF
+
+cat << 'EOF' > etc/issue.net
+*******************************************
+*   BitOS Professional Edition            *
+*   Authorised access only.               *
+*   All sessions are logged.              *
+*******************************************
+EOF
 
 log_info "Creating etc/inittab..."
 cat << 'EOF' > etc/inittab
@@ -58,8 +110,10 @@ log_info "Creating user accounts..."
 # Passwords in /etc/shadow (x in passwd = shadow auth)
 echo "root:x:0:0:root:/home/root:/bin/sh" > etc/passwd
 echo "kaung:x:1000:1000:kaung:/home/kaung:/bin/sh" >> etc/passwd
+echo "sshd:x:74:74:Privilege-separated SSH:/var/empty:/sbin/nologin" >> etc/passwd
 echo "root:x:0:" > etc/group
 echo "kaung:x:1000:" >> etc/group
+echo "sshd:x:74:" >> etc/group
 
 # Shadow file: root has no password, kaung has no password
 # Format: user:hash:lastchange:min:max:warn:inactive:expire
@@ -67,6 +121,7 @@ echo "kaung:x:1000:" >> etc/group
 cat << 'EOF' > etc/shadow
 root::19787:0:99999:7:::
 kaung::19787:0:99999:7:::
+sshd:!:19787::::::
 EOF
 chmod 640 etc/shadow
 
@@ -220,28 +275,39 @@ EOF
 
 cat << 'EOF' > etc/rcS.d/S40-firewall
 #!/bin/sh
-echo "Applying basic firewall rules..."
+echo "Applying firewall rules..."
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+# SSH rate limiting: max 3 new connections per 60s, then DROP
+iptables -A INPUT -p tcp --dport 22 -m state --state NEW -m recent --set --name SSH
+iptables -A INPUT -p tcp --dport 22 -m state --state NEW -m recent --update --seconds 60 --hitcount 4 --name SSH -j LOG --log-prefix "SSH_BRUTE: " --log-level 6
+iptables -A INPUT -p tcp --dport 22 -m state --state NEW -m recent --update --seconds 60 --hitcount 4 --name SSH -j DROP
 iptables -A INPUT -p tcp --dport 22 -j ACCEPT
 iptables -A INPUT -p tcp --dport 23 -j ACCEPT
 iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-iptables -A INPUT -p icmp -j ACCEPT
+iptables -A INPUT -p icmp -m limit --limit 10/s -j ACCEPT
 iptables -A INPUT -j DROP
-echo "Firewall rules applied."
+echo "Firewall rules applied (SSH rate-limiting active)."
 EOF
 chmod +x etc/rcS.d/S40-firewall
 
 cat << 'EOF' > etc/rcS.d/S50-sshd
 #!/bin/sh
 echo "Generating SSH host keys (if needed)..."
-[ ! -f /etc/dropbear/dropbear_rsa_host_key ] && \
-    dropbearkey -t rsa -s 2048 -f /etc/dropbear/dropbear_rsa_host_key >/dev/null 2>&1
-[ ! -f /etc/dropbear/dropbear_ecdsa_host_key ] && \
-    dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key >/dev/null 2>&1
-echo "Starting SSH server on port 22..."
-dropbear -p 22 -R -B -P /var/run/dropbear.pid
-echo "SSH server started. Connect: ssh root@<ip>"
+[ ! -d /etc/ssh ] && mkdir -p /etc/ssh
+# Ensure /var/empty is owned by root with correct permissions (required by OpenSSH privsep)
+mkdir -p /var/empty
+chown root:root /var/empty
+chmod 755 /var/empty
+ssh-keygen -A -f / 2>&1
+echo "Starting OpenSSH server on port 22..."
+/usr/sbin/sshd
+sleep 2
+if [ -f /var/run/sshd.pid ]; then
+    echo "SSH server started (PID $(cat /var/run/sshd.pid))"
+else
+    echo "WARNING: sshd may not have started - check console"
+fi
 EOF
 chmod +x etc/rcS.d/S50-sshd
 
@@ -267,18 +333,143 @@ mkdir -p var/www
 cat << 'EOF' > var/www/index.html
 <!DOCTYPE html>
 <html>
-<head><title>BitOS Web Server</title>
-<style>body{background:#111;color:#0f0;font-family:monospace;padding:40px;}
-h1{color:#0f0;} a{color:#0af;}</style>
+<head>
+<meta http-equiv="refresh" content="0;url=/dashboard.cgi">
+<title>BitOS Dashboard</title>
+<style>
+body{background:#111;color:#0f0;font-family:monospace;padding:40px;}
+a{color:#0af;}
+</style>
 </head>
 <body>
-<h1>&#9608;&#9608; BitOS Professional Edition</h1>
-<p>This page is served by the built-in <b>BusyBox httpd</b> running on BitOS.</p>
-<hr>
-<p>Kernel: $(uname -r) &nbsp;|&nbsp; Host: $(hostname)</p>
+<p>Loading dashboard... <a href="/dashboard.cgi">Click here</a> if not redirected.</p>
 </body>
 </html>
 EOF
+
+cat << 'CGIEOF' > var/www/dashboard.cgi
+#!/bin/sh
+echo "Content-Type: text/html"
+echo ""
+UPTIME=$(uptime | sed 's/.*up //' | sed 's/,  .*//')
+HOSTNAME=$(hostname 2>/dev/null || echo "bitos")
+KERNEL=$(uname -r)
+MEM_LINE=$(free -m | grep Mem)
+MEM_TOTAL=$(echo $MEM_LINE | awk '{print $2}')
+MEM_USED=$(echo $MEM_LINE  | awk '{print $3}')
+MEM_FREE=$(echo $MEM_LINE  | awk '{print $4}')
+LOAD=$(cat /proc/loadavg | awk '{print $1, $2, $3}')
+PROC_COUNT=$(ps | wc -l)
+DISK=$(df -h / 2>/dev/null | tail -1 | awk '{print $3"/"$2" ("$5")"}')
+ETH_IP=$(ip addr show eth0 2>/dev/null | grep 'inet ' | awk '{print $2}' | head -1)
+[ -z "$ETH_IP" ] && ETH_IP="N/A"
+PKG_COUNT=0
+[ -s /etc/bpm.db ] && PKG_COUNT=$(wc -l < /etc/bpm.db)
+SSH_STATUS="stopped"
+[ -f /var/run/sshd.pid ] && kill -0 $(cat /var/run/sshd.pid) 2>/dev/null && SSH_STATUS="running"
+HTTP_STATUS="running"
+CRON_STATUS="stopped"
+[ -f /var/run/crond.pid ] && kill -0 $(cat /var/run/crond.pid) 2>/dev/null && CRON_STATUS="running"
+
+# Bar generator (filled/total -> ASCII bar)
+bar() {
+    USED=$1; TOTAL=$2; WIDTH=20
+    [ "$TOTAL" -eq 0 ] && echo "[--------------------] N/A" && return
+    FILLED=$(( USED * WIDTH / TOTAL ))
+    EMPTY=$(( WIDTH - FILLED ))
+    BAR="["
+    i=0; while [ $i -lt $FILLED ]; do BAR="${BAR}#"; i=$((i+1)); done
+    i=0; while [ $i -lt $EMPTY ];  do BAR="${BAR}-"; i=$((i+1)); done
+    BAR="${BAR}] ${USED}/${TOTAL} MB"
+    echo "$BAR"
+}
+MEM_BAR=$(bar $MEM_USED $MEM_TOTAL)
+
+cat << HTML
+<!DOCTYPE html>
+<html>
+<head>
+<title>BitOS Dashboard - $HOSTNAME</title>
+<meta http-equiv="refresh" content="10">
+<meta charset="utf-8">
+<style>
+  body { background: #0d1117; color: #c9d1d9; font-family: 'Courier New', monospace; margin: 0; padding: 0; }
+  .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 32px; display: flex; align-items: center; gap: 16px; }
+  .header h1 { color: #3fb950; margin: 0; font-size: 1.4em; }
+  .header .sub { color: #8b949e; font-size: 0.85em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; padding: 24px 32px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+  .card h2 { color: #58a6ff; margin: 0 0 12px 0; font-size: 0.95em; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #21262d; padding-bottom: 8px; }
+  .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #21262d; font-size: 0.9em; }
+  .row:last-child { border-bottom: none; }
+  .label { color: #8b949e; }
+  .val { color: #c9d1d9; }
+  .green { color: #3fb950; }
+  .red { color: #f85149; }
+  .bar { font-family: monospace; color: #3fb950; font-size: 0.85em; word-break: break-all; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; }
+  .badge-green { background: #1a3a23; color: #3fb950; }
+  .badge-red { background: #3a1a1a; color: #f85149; }
+  .footer { text-align: center; color: #484f58; font-size: 0.8em; padding: 16px; }
+  .logo { color: #3fb950; font-size: 1.2em; }
+</style>
+</head>
+<body>
+<div class="header">
+  <span class="logo">&#9608;&#9608;</span>
+  <h1>BitOS Professional Edition</h1>
+  <span class="sub">Dashboard &mdash; auto-refresh every 10s</span>
+</div>
+<div class="grid">
+
+  <div class="card">
+    <h2>System</h2>
+    <div class="row"><span class="label">Hostname</span><span class="val green">$HOSTNAME</span></div>
+    <div class="row"><span class="label">Kernel</span><span class="val">$KERNEL</span></div>
+    <div class="row"><span class="label">Uptime</span><span class="val">$UPTIME</span></div>
+    <div class="row"><span class="label">Load avg</span><span class="val">$LOAD</span></div>
+    <div class="row"><span class="label">Processes</span><span class="val">$PROC_COUNT</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Memory</h2>
+    <div class="row"><span class="label">Total</span><span class="val">${MEM_TOTAL} MB</span></div>
+    <div class="row"><span class="label">Used</span><span class="val">${MEM_USED} MB</span></div>
+    <div class="row"><span class="label">Free</span><span class="val green">${MEM_FREE} MB</span></div>
+    <div class="row"><span class="label">Usage</span></div>
+    <div class="bar">$MEM_BAR</div>
+  </div>
+
+  <div class="card">
+    <h2>Storage &amp; Network</h2>
+    <div class="row"><span class="label">Disk (/)</span><span class="val">$DISK</span></div>
+    <div class="row"><span class="label">IP (eth0)</span><span class="val green">$ETH_IP</span></div>
+    <div class="row"><span class="label">Packages</span><span class="val">$PKG_COUNT installed</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Services</h2>
+    <div class="row">
+      <span class="label">OpenSSH (sshd)</span>
+      <span class="badge $([ "$SSH_STATUS" = "running" ] && echo badge-green || echo badge-red)">$SSH_STATUS</span>
+    </div>
+    <div class="row">
+      <span class="label">Web (httpd)</span>
+      <span class="badge badge-green">$HTTP_STATUS</span>
+    </div>
+    <div class="row">
+      <span class="label">Cron (crond)</span>
+      <span class="badge $([ "$CRON_STATUS" = "running" ] && echo badge-green || echo badge-red)">$CRON_STATUS</span>
+    </div>
+  </div>
+
+</div>
+<div class="footer">BitOS &mdash; $(date '+%Y-%m-%d %H:%M:%S %Z')</div>
+</body>
+</html>
+HTML
+CGIEOF
+chmod +x var/www/dashboard.cgi
 
 log_info "Creating MOTD and profile..."
 chmod +x etc/init.d/rcS
@@ -286,7 +477,9 @@ chmod +x etc/init.d/rcS
 log_info "Creating MOTD and profile..."
 cat << 'EOF' > etc/motd
 Welcome to BitOS Professional Edition
-Type 'bit_info' for system info, 'bit_pkg available' for packages.
+Type 'bit_info' for system info, 'bpm available' for packages.
+Type 'lsusers' to list accounts, 'adduser/deluser' to manage users.
+Dashboard: http://localhost:8180/dashboard.cgi
 EOF
 
 cat << 'EOF' > etc/profile
@@ -325,16 +518,16 @@ bit_info() {
     echo ""
 }
 
-# bit_pkg: Simple package manager (Applet manager)
-bit_pkg() {
+# bpm: BitOS Package Manager
+bpm() {
     # GitHub raw URL - packages live in pkgs/ directory of the repo
     REPO_URL="https://raw.githubusercontent.com/IceBerg-coder/Bit_OS/main/pkgs"
-    PKG_DB="/etc/bit_pkg.db"
+    PKG_DB="/etc/bpm.db"
     PKG_LIST_URL="$REPO_URL/packages.list"
     
     case "$1" in
         "install")
-            [ -z "$2" ] && echo "Usage: bit_pkg install <applet>" && return 1
+            [ -z "$2" ] && echo "Usage: bpm install <name>" && return 1
             echo -e "\e[1;34m[*] Searching for $2...\e[0m"
             if busybox --list | grep -qx "$2"; then
                 echo -e "\e[1;32m[+] Installing built-in applet: $2\e[0m"
@@ -351,12 +544,12 @@ bit_pkg() {
                      echo "Run: $2"
                 else
                      rm -f "/usr/bin/$2"
-                     echo -e "\e[1;31m[!] Error: $2 not found. Run: bit_pkg available\e[0m"
+                     echo -e "\e[1;31m[!] Error: $2 not found. Run: bpm available\e[0m"
                 fi
             fi
             ;;
         "remove")
-            [ -z "$2" ] && echo "Usage: bit_pkg remove <applet>" && return 1
+            [ -z "$2" ] && echo "Usage: bpm remove <name>" && return 1
             if [ -f "/usr/bin/$2" ]; then
                 rm "/usr/bin/$2"
                 sed -i "/^$2 /d" "$PKG_DB" 2>/dev/null
@@ -384,8 +577,34 @@ bit_pkg() {
             echo -e "\e[1;34m--- Matching Built-in Applets ---\e[0m"
             busybox --list | grep "${2:-.}"
             ;;
+        "upgrade")
+            echo -e "\e[1;34m[*] Upgrading all GitHub-installed packages...\e[0m"
+            if [ ! -s "$PKG_DB" ]; then
+                echo "(no packages installed)"
+                return 0
+            fi
+            UPGRADED=0; FAILED=0
+            while IFS= read -r LINE; do
+                PKG=$(echo "$LINE" | awk '{print $1}')
+                SRC=$(echo "$LINE" | awk '{print $2}')
+                [ "$SRC" != "(github)" ] && continue
+                echo -e "\e[1;33m[~] Upgrading $PKG...\e[0m"
+                wget -q --no-check-certificate "$REPO_URL/$PKG" -O "/tmp/${PKG}.new"
+                if [ $? -eq 0 ] && [ -s "/tmp/${PKG}.new" ]; then
+                    mv "/tmp/${PKG}.new" "/usr/bin/$PKG"
+                    chmod +x "/usr/bin/$PKG"
+                    echo -e "\e[1;32m[+] $PKG upgraded\e[0m"
+                    UPGRADED=$((UPGRADED+1))
+                else
+                    rm -f "/tmp/${PKG}.new"
+                    echo -e "\e[1;31m[!] Failed to upgrade $PKG\e[0m"
+                    FAILED=$((FAILED+1))
+                fi
+            done < "$PKG_DB"
+            echo -e "\e[1;34m[=] Done. Upgraded: $UPGRADED  Failed: $FAILED\e[0m"
+            ;;
         *)
-            echo "Usage: bit_pkg [install|remove|list|available|search] <name>"
+            echo "Usage: bpm [install|remove|list|available|search|upgrade] <name>"
             ;;
     esac
 }
@@ -393,6 +612,49 @@ bit_pkg() {
 # Add a simple login tool for switching users
 login_as() {
     exec su - "$1"
+}
+
+# adduser: Add a new user
+adduser() {
+    [ -z "$1" ] && echo "Usage: adduser <username> [uid]" && return 1
+    USERNAME="$1"
+    UID_NUM="${2:-$(awk -F: '{if($3>999 && $3<65534) print $3}' /etc/passwd | sort -n | tail -1 | xargs -I{} expr {} + 1 || echo 1000)}"
+    grep -q "^$USERNAME:" /etc/passwd && echo "[!] User $USERNAME already exists" && return 1
+    echo "${USERNAME}:x:${UID_NUM}:${UID_NUM}::/home/${USERNAME}:/bin/sh" >> /etc/passwd
+    echo "${USERNAME}:x:${UID_NUM}:" >> /etc/group
+    echo "${USERNAME}:!:19000:0:99999:7:::" >> /etc/shadow
+    mkdir -p "/home/${USERNAME}"
+    chmod 700 "/home/${USERNAME}"
+    echo "[+] User $USERNAME created (uid=$UID_NUM). Set password: passwd $USERNAME"
+}
+
+# deluser: Delete a user
+deluser() {
+    [ -z "$1" ] && echo "Usage: deluser <username>" && return 1
+    USERNAME="$1"
+    grep -q "^$USERNAME:" /etc/passwd || { echo "[!] User $USERNAME not found"; return 1; }
+    sed -i "/^${USERNAME}:/d" /etc/passwd
+    sed -i "/^${USERNAME}:/d" /etc/shadow
+    sed -i "/^${USERNAME}:/d" /etc/group
+    echo "[-] User $USERNAME removed."
+    echo -n "Remove home directory /home/$USERNAME? (y/N): "
+    read -r RMHOME
+    [ "$RMHOME" = "y" ] && rm -rf "/home/$USERNAME" && echo "[-] /home/$USERNAME removed."
+}
+
+# lsusers: List all non-system users
+lsusers() {
+    echo -e "\e[1;34m--- User Accounts ---\e[0m"
+    awk -F: '$3 >= 1000 && $3 < 65534 {printf "  %-16s uid=%-6s home=%s\n", $1, $3, $6}' /etc/passwd
+    echo ""
+    echo -e "\e[1;34m--- System Accounts ---\e[0m"
+    awk -F: '$3 < 1000 {printf "  %-16s uid=%-6s shell=%s\n", $1, $3, $7}' /etc/passwd
+}
+
+# chpasswd_user: Interactive password change for any user (root only)
+chpasswd_user() {
+    [ -z "$1" ] && echo "Usage: chpasswd_user <username>" && return 1
+    passwd "$1"
 }
 
 # bit-install: Simple HDD Installer
