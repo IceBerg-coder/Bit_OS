@@ -274,31 +274,31 @@ bit_info() {
 
 # bit_pkg: Simple package manager (Applet manager)
 bit_pkg() {
-    # Points to the root of the workspace served by Python HTTP server
-    # 10.0.2.2 is the QEMU special address for the host
-    REPO_URL="http://10.0.2.2:8080/pkgs" 
+    # GitHub raw URL - packages live in pkgs/ directory of the repo
+    REPO_URL="https://raw.githubusercontent.com/IceBerg-coder/Bit_OS/main/pkgs"
+    PKG_DB="/etc/bit_pkg.db"
+    PKG_LIST_URL="$REPO_URL/packages.list"
     
     case "$1" in
         "install")
             [ -z "$2" ] && echo "Usage: bit_pkg install <applet>" && return 1
             echo -e "\e[1;34m[*] Searching for $2...\e[0m"
-            # Try built-in applets first
             if busybox --list | grep -qx "$2"; then
                 echo -e "\e[1;32m[+] Installing built-in applet: $2\e[0m"
                 mkdir -p /home/bin
                 ln -sf /bin/busybox "/home/bin/$2"
+                echo "$2 (builtin)" >> "$PKG_DB"
                 echo -e "\e[1;32m[!] $2 is now available in /home/bin\e[0m"
             else
-                echo -e "\e[1;33m[-] $2 is not a built-in applet. Checking online repository...\e[0m"
-                echo -e "[*] URL: $REPO_URL/$2"
-                # Use wget with extra flags for debugging and to ensure it follows the path
-                wget "$REPO_URL/$2" -O "/home/bin/$2"
+                echo -e "\e[1;33m[-] Checking GitHub repository...\e[0m"
+                wget -q "$REPO_URL/$2" -O "/home/bin/$2"
                 if [ $? -eq 0 ] && [ -s "/home/bin/$2" ]; then
                      chmod +x "/home/bin/$2"
-                     echo -e "\e[1;32m[+] Downloaded and installed $2 from repository.\e[0m"
+                     echo "$2 (github)" >> "$PKG_DB"
+                     echo -e "\e[1;32m[+] Installed $2 from GitHub repository.\e[0m"
                 else
                      rm -f "/home/bin/$2"
-                     echo -e "\e[1;31m[!] Error: $2 not found in built-ins or repository.\e[0m"
+                     echo -e "\e[1;31m[!] Error: $2 not found. Run: bit_pkg available\e[0m"
                 fi
             fi
             ;;
@@ -306,21 +306,26 @@ bit_pkg() {
             [ -z "$2" ] && echo "Usage: bit_pkg remove <applet>" && return 1
             if [ -f "/home/bin/$2" ]; then
                 rm "/home/bin/$2"
+                sed -i "/^$2 /d" "$PKG_DB" 2>/dev/null
                 echo -e "\e[1;32m[-] Removed $2\e[0m"
             else
-                echo -e "\e[1;31m[!] $2 is not installed in /home/bin\e[0m"
+                echo -e "\e[1;31m[!] $2 is not installed\e[0m"
             fi
             ;;
         "list")
             echo -e "\e[1;34m--- Installed Packages ---\e[0m"
-            ls -1 /home/bin
+            if [ -s "$PKG_DB" ]; then cat "$PKG_DB"; else echo "(none)"; fi
+            ;;
+        "available")
+            echo -e "\e[1;34m--- Available Packages in GitHub Repository ---\e[0m"
+            wget -qO- "$PKG_LIST_URL" 2>/dev/null || echo "Could not reach GitHub. Check network."
             ;;
         "search")
-            echo -e "\e[1;34m--- Available Built-in Applets ---\e[0m"
-            busybox --list | grep "$2"
+            echo -e "\e[1;34m--- Matching Built-in Applets ---\e[0m"
+            busybox --list | grep "${2:-.}"
             ;;
         *)
-            echo "Usage: bit_pkg [install|remove|list|search] <applet>"
+            echo "Usage: bit_pkg [install|remove|list|available|search] <name>"
             ;;
     esac
 }

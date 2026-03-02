@@ -1,0 +1,3 @@
+# BitOS Package Repository
+# Format: name  version  description
+bit-hello    1.0    BitOS SDK example / hello world script
