@@ -65,3 +65,4 @@ iperf3           3.17.1 7400b23002185e47858676a1d5ac878b6f4812024a9cd8f67580f283
 sqlite3          3490100 61d7846bf137c4c509f9c09d65a2bec5cdb37b9ba24e520ebc621b4c7dcbf399  -                sqlite3 - self-contained SQL database engine CLI
 python3          3.13.2 209c3df13a5a70739d3122e9b3eec75131f3531f4c0fb0a7829880d5ad2a48c7  -                python3 - Python 3 interpreter
 git              2.48.1 713a6e427ae04ede02bd92b102ff83c199da804a1837e28510ab113364eefdc0  -                git - distributed version control system
+nmap             7.95   d9dcec1db1d1aca1f47301f69b6d22b84a5205adbba454ce93ba244647d7a636  -                nmap - network mapper and port scanner

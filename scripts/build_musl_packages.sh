@@ -63,6 +63,8 @@ BZIP2_VER="1.0.8";       BZIP2_URL="https://sourceware.org/pub/bzip2/bzip2-${BZI
 PYTHON3_VER="3.13.2";    PYTHON3_URL="https://www.python.org/ftp/python/${PYTHON3_VER}/Python-${PYTHON3_VER}.tar.xz"
 EXPAT_VER="2.6.4";       EXPAT_URL="https://github.com/libexpat/libexpat/releases/download/R_2_6_4/expat-${EXPAT_VER}.tar.xz"
 GIT_VER="2.48.1";        GIT_URL="https://www.kernel.org/pub/software/scm/git/git-${GIT_VER}.tar.xz"
+LIBPCAP_VER="1.10.5";    LIBPCAP_URL="https://www.tcpdump.org/release/libpcap-${LIBPCAP_VER}.tar.xz"
+NMAP_VER="7.95";          NMAP_URL="https://nmap.org/dist/nmap-${NMAP_VER}.tar.bz2"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -980,6 +982,77 @@ build_git() {
     log_info "git: done"
 }
 
+build_libpcap() {
+    [ -f "$SYSROOT/lib/libpcap.a" ] && log_info "libpcap: already built" && return
+    _dl libpcap "$LIBPCAP_URL"
+    rm -rf "$PKG_BUILD/libpcap-$LIBPCAP_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/libpcap-$LIBPCAP_VER"
+    log_info "Building libpcap $LIBPCAP_VER (static) ..."
+    cd "$PKG_BUILD/libpcap-$LIBPCAP_VER"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CFLAGS="-O2 -fPIC" \
+    ./configure --host="$TARGET" --build=x86_64-linux-gnu \
+        --prefix="$SYSROOT" \
+        --enable-static --disable-shared \
+        --disable-bluetooth \
+        --disable-usb \
+        --disable-dbus \
+        --without-libnl
+    make -j$(nproc)
+    make install
+    cd "$WORKSPACE_ROOT"
+    log_info "libpcap: done"
+}
+
+build_nmap() {
+    build_libpcap
+    _dl nmap "$NMAP_URL"
+    rm -rf "$PKG_BUILD/nmap-$NMAP_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/nmap-$NMAP_VER"
+    log_info "Building nmap $NMAP_VER (static, musl) ..."
+    local SRC="$PKG_BUILD/nmap-$NMAP_VER"
+    cd "$SRC"
+    CC="$CC" CXX="$CXX" AR="$AR" RANLIB="$RANLIB" \
+    CFLAGS="-O2 -I$SYSROOT/include" \
+    CXXFLAGS="-O2 -I$SYSROOT/include" \
+    LDFLAGS="-L$SYSROOT/lib -static -pthread" \
+    ./configure --host="$TARGET" --build=x86_64-linux-gnu \
+        --prefix=/usr \
+        --without-zenmap \
+        --without-ndiff \
+        --without-nmap-update \
+        --without-liblua \
+        --without-ncat \
+        --without-nping \
+        --with-openssl="$SYSROOT" \
+        --with-libpcap="$SYSROOT" \
+        --with-libpcre=included
+    # nmap's configure re-ran libpcre's configure without --disable-maintainer-mode.
+    # Re-run libpcre's configure with that flag so make doesn't call aclocal.
+    cd "$SRC/libpcre"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-O2 -fPIC" \
+    ./configure --host="$TARGET" --build=x86_64-linux-gnu \
+        --enable-static --disable-shared --disable-cpp \
+        --disable-maintainer-mode
+    # libpcre (bundled) has newer libtool m4 files than aclocal.m4 and
+    # Makefile.in — make tries to rerun aclocal/automake (not installed).
+    # Fix: backdate all autotools source files, then refresh generated files.
+    find . \( -name "configure.ac" -o -name "configure.in" -o -name "Makefile.am" \) \
+        -exec touch -d "2020-01-01 00:00:00" {} +
+    find . -name "*.m4" -path "*/m4/*" \
+        -exec touch -d "2020-01-01 00:00:00" {} +
+    find . \( -name "aclocal.m4" -o -name "configure" \
+             -o -name "Makefile.in" -o -name "config.h.in" \) \
+        -exec touch {} +
+    cd "$SRC"
+    make -j$(nproc)
+    "$STRIP" nmap
+    _package "nmap" "$SRC/nmap" "$NMAP_VER" "-" \
+        "nmap - network mapper and port scanner"
+    cd "$WORKSPACE_ROOT"
+    log_info "nmap: done"
+}
+
 build_python3() {
     build_libffi
     build_bzip2
@@ -1051,6 +1124,7 @@ build_sysroot() {
     build_libffi
     build_bzip2
     build_expat
+    build_libpcap
     log_info "--- Sysroot complete ---"
 }
 
@@ -1105,6 +1179,7 @@ main() {
         sqlite3)     build_sqlite3;                        sign_list ;;
         python3)     build_sysroot; build_python3;         sign_list ;;
         git)         build_sysroot; build_git;              sign_list ;;
+        nmap)        build_sysroot; build_nmap;              sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
@@ -1119,6 +1194,7 @@ main() {
             build_openssl_cli; build_iperf3; build_sqlite3
             build_python3
             build_git
+            build_nmap
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;
