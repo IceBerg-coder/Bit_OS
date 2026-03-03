@@ -112,16 +112,20 @@ All static libs in `build/musl-sysroot/`, built with `-fPIC` for shared-extensio
 | `openssl` | 3.3.2 | — | fully-static | ✅ v2.0n |
 | `iperf3` | 3.17.1 | — | fully-static | ✅ v2.0n |
 | `sqlite3` | 3.49.1 | — | fully-static | ✅ v2.0n |
-| `python3` | 3.13.2 | 5.1M | fully-static | ✅ v2.0o |
+| `python3` | 3.13.2 | — | — | ✅ via `uv python install 3.13` — no bpm package needed |
 | `git` | 2.48.1 | 3.6M | fully-static | ✅ v2.0p |
 | `nmap` | 7.95 | 8.8M | fully-static | ✅ v2.0q |
+| `uv` | 0.10.7 | 54M | fully-static | ✅ v2.0r — also manages Python installs |
+| `uvx` | 0.10.7 | 424K | fully-static | ✅ v2.0r |
+| `ruff` | 0.15.4 | 27M | fully-static | ✅ v2.0r |
+| `ty` | 0.0.20 | 23M | fully-static | ✅ v2.0r |
 
 > **Note:** "musl-dynamic" = links against `/lib/ld-musl-x86_64.so.1` pre-bundled in initramfs.
 > All others are fully static — zero runtime dependencies after `bpm install`.
 
 **QEMU validation (Mar 3 2026):** curl ✅  jq ✅  nano ✅  htop TUI ✅  rsync ✅
 
-**Milestone: v2.0** ✅ — musl toolchain + 45 binaries (full dev/ops toolset) + sysroot with 10 static libs *(shipped)*
+**Milestone: v2.0** ✅ — musl toolchain + 48 binaries (full dev/ops + Astral Python tooling) + sysroot with 10 static libs *(shipped)*
 
 ---
 
@@ -235,7 +239,7 @@ on: push to main
 |---------|------|--------|
 | **v1.2** | Persistent root FS + netconf boot hook + GRUB EFI | ✅ Done |
 | **v1.5** | Dep-aware bpm + RSA-signed repo + boot splash + `bpm info` | ✅ Done |
-| **v2.0** | musl toolchain + 45 static binaries (curl → nmap, python3, git) + 10-lib sysroot | ✅ Done |
+| **v2.0** | musl toolchain + 48 static binaries (curl → nmap, git, uv/ruff/ty) + 10-lib sysroot | ✅ Done |
 | **v2.5** | s6 init + eudev + structured logging | 5 months |
 | **v3.0** | PAM + sudo + hardened kernel + AppArmor | 8 months |
 | **v3.5** | Wayland desktop + display manager *(optional)* | 12 months |

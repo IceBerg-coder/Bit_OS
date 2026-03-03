@@ -945,17 +945,26 @@ _bpm_install_one() {
         if [ "$ACTUAL" != "$SHA" ]; then rm -f "/tmp/bpm_dl_$PKG"; echo -e "\e[1;31m[!] SHA256 mismatch: $PKG\e[0m  expected: $SHA\n  got: $ACTUAL"; return 1; fi
         echo -e "\e[1;32m[\u2713] SHA256 verified: $PKG\e[0m"
     fi
-    mv "/tmp/bpm_dl_$PKG" "$BPM_BIN/$PKG"; chmod +x "$BPM_BIN/$PKG"
-    # musl-libc: also install the dynamic linker to /lib/ld-musl-x86_64.so.1
-    if [ "$PKG" = "musl-libc" ]; then
-        mkdir -p /lib
-        cp "$BPM_BIN/musl-libc" /lib/ld-musl-x86_64.so.1
-        chmod 755 /lib/ld-musl-x86_64.so.1
-        echo -e "\e[1;32m[+] Dynamic linker installed: /lib/ld-musl-x86_64.so.1\e[0m"
+    # Detect gzip tarball by magic bytes (1f 8b) — extract to / instead of mv
+    local _MAGIC
+    _MAGIC=$(od -A n -N 2 -t x1 "/tmp/bpm_dl_$PKG" 2>/dev/null | tr -dc '0-9a-f')
+    if [ "$_MAGIC" = "1f8b" ]; then
+        tar xzf "/tmp/bpm_dl_$PKG" -C /
+        rm -f "/tmp/bpm_dl_$PKG"
+        echo -e "\e[1;32m[+] Installed $PKG v$VER (tarball) -> /\e[0m"
+    else
+        mv "/tmp/bpm_dl_$PKG" "$BPM_BIN/$PKG"; chmod +x "$BPM_BIN/$PKG"
+        # musl-libc: also install the dynamic linker to /lib/ld-musl-x86_64.so.1
+        if [ "$PKG" = "musl-libc" ]; then
+            mkdir -p /lib
+            cp "$BPM_BIN/musl-libc" /lib/ld-musl-x86_64.so.1
+            chmod 755 /lib/ld-musl-x86_64.so.1
+            echo -e "\e[1;32m[+] Dynamic linker installed: /lib/ld-musl-x86_64.so.1\e[0m"
+        fi
+        echo -e "\e[1;32m[+] Installed $PKG v$VER -> $BPM_BIN\e[0m"
     fi
     sed -i "/^$PKG /d" "$BPM_DB" 2>/dev/null
     echo "$PKG $VER (github) deps:$DEPS" >> "$BPM_DB"
-    echo -e "\e[1;32m[+] Installed $PKG v$VER -> $BPM_BIN\e[0m"
 }
 
 # bpm: BitOS Package Manager (v1.5 - dep-aware, signed repo)
