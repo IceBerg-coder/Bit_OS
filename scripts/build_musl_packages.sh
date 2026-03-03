@@ -53,6 +53,9 @@ OPENSSH_VER="9.9p1";     OPENSSH_URL="https://cdn.openbsd.org/pub/OpenBSD/OpenSS
 LIBEVENT_VER="2.1.12";  LIBEVENT_URL="https://github.com/libevent/libevent/releases/download/release-${LIBEVENT_VER}-stable/libevent-${LIBEVENT_VER}-stable.tar.gz"
 SOCAT_VER="1.8.0.1";    SOCAT_URL="http://www.dest-unreach.org/socat/download/socat-${SOCAT_VER}.tar.gz"
 TMUX_VER="3.5a";         TMUX_URL="https://github.com/tmux/tmux/releases/download/${TMUX_VER}/tmux-${TMUX_VER}.tar.gz"
+LUA_VER="5.4.7";         LUA_URL="https://www.lua.org/ftp/lua-${LUA_VER}.tar.gz"
+ZSTD_VER="1.5.6";        ZSTD_URL="https://github.com/facebook/zstd/releases/download/v${ZSTD_VER}/zstd-${ZSTD_VER}.tar.gz"
+LZ4_VER="1.10.0";        LZ4_URL="https://github.com/lz4/lz4/releases/download/v${LZ4_VER}/lz4-${LZ4_VER}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -771,6 +774,55 @@ build_tmux() {
     cd "$WORKSPACE_ROOT"
 }
 
+build_lua() {
+    _dl lua "$LUA_URL"
+    rm -rf "$PKG_BUILD/lua-$LUA_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/lua-$LUA_VER"
+    log_info "Building lua $LUA_VER (static) ..."
+    local SRC="$PKG_BUILD/lua-$LUA_VER"
+    cd "$SRC"
+    # lua uses a simple Makefile — no configure, just override CC
+    make CC="$CC" AR="$AR rcu" RANLIB="$RANLIB" \
+        MYCFLAGS="-O2" MYLDFLAGS="-static" linux
+    make CC="$CC" INSTALL_TOP="$SRC/_install" install
+    _package "lua" "$SRC/_install/bin/lua" "$LUA_VER" "-" \
+        "lua - powerful lightweight scripting language"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_zstd() {
+    _dl zstd "$ZSTD_URL"
+    rm -rf "$PKG_BUILD/zstd-$ZSTD_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/zstd-$ZSTD_VER"
+    log_info "Building zstd $ZSTD_VER (static) ..."
+    local SRC="$PKG_BUILD/zstd-$ZSTD_VER"
+    cd "$SRC"
+    make CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+        CFLAGS="-O2" LDFLAGS="-static" \
+        ZSTD_NO_TESTS=1 zstd
+    mkdir -p "$SRC/_install/bin"
+    install -m 755 "$SRC/zstd" "$SRC/_install/bin/zstd"
+    _package "zstd" "$SRC/_install/bin/zstd" "$ZSTD_VER" "-" \
+        "zstd - Zstandard fast real-time compression"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_lz4() {
+    _dl lz4 "$LZ4_URL"
+    rm -rf "$PKG_BUILD/lz4-$LZ4_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/lz4-$LZ4_VER"
+    log_info "Building lz4 $LZ4_VER (static) ..."
+    local SRC="$PKG_BUILD/lz4-$LZ4_VER"
+    cd "$SRC"
+    make CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+        CFLAGS="-O2" LDFLAGS="-static" lz4
+    mkdir -p "$SRC/_install/bin"
+    install -m 755 "$SRC/lz4" "$SRC/_install/bin/lz4"
+    _package "lz4" "$SRC/_install/bin/lz4" "$LZ4_VER" "-" \
+        "lz4 - extremely fast compression"
+    cd "$WORKSPACE_ROOT"
+}
+
 # ---------------------------------------------------------------------------
 # Sign
 # ---------------------------------------------------------------------------
@@ -847,6 +899,9 @@ main() {
         openssh)     build_openssh;                      sign_list ;;
         socat)       build_sysroot; build_socat;           sign_list ;;
         tmux)        build_sysroot; build_tmux;            sign_list ;;
+        lua)         build_lua;                            sign_list ;;
+        zstd)        build_zstd;                           sign_list ;;
+        lz4)         build_lz4;                            sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
@@ -857,6 +912,7 @@ main() {
             build_patch; build_tar; build_grep
             build_make; build_which; build_openssh
             build_socat; build_tmux
+            build_lua; build_zstd; build_lz4
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;

@@ -25,7 +25,6 @@ nano             7.2    72350db433ae10c29059555a5c21ca44ebfbdfcb208242ab2b642065
 rsync            3.4.1  7c6f034bf9f07968f0d3a202e60eb0bd6cc0657183e66e61653c5dd3a356d973  -                rsync - static file sync over SSH local or rsync protocol
 htop             3.3.0  b6c22cebe6757a84f376208a3aa401bbb97cdc7f689d3a3d752541e59c256761  -                htop - interactive process viewer with CPU mem bars ncurses TUI
 jq               1.7.1  f0b4499e447e708e673adc051151194843ee14c6ba03b007cfe5cd90efd09fc7  musl-libc        jq - lightweight JSON processor slice filter map transform JSON
-curl             8.9.1  5f33634895b126b487118a564e7b6d6f61faf34dd8bdca1bf9a9e0df211aaf46  musl-libc        Static curl with TLS - HTTP/HTTPS downloads REST API file transfers
 musl-libc        1.2.5  b83bf7c49014bc5be4f2e2842def178142b38896d7de4279c2dcebcdd09382aa  -                musl libc dynamic linker - required by curl jq and other musl-dynamic packages
 strace           6.19   027eedac84fbacf88c2fd3a19533ab3903ae29178f8cbf72affb029d562dc50c  -                strace - system call tracer for debugging and tracing processes
 less             668    288f61342f78c13a0905a70936f643f73754ffca498e237a2b8b5fabbc9ee236  -                less - feature-rich terminal pager for viewing files and command output
@@ -57,3 +56,7 @@ sftp             9.9p1  932271ebd4312926963255a931f81ff5748330e20942eb35e6e51153
 ssh-keygen       9.9p1  cc0abcdd8d71de6909f04e2da21c4389df7061d0aac66a15f5c908669d6a6e12  -                ssh-keygen - OpenSSH ssh-keygen client
 socat            1.8.0.1 ec428c901cd15a20f200f7990d3a700f321e395d6e7ef8378f87504ac197a9b0  -                socat - multipurpose relay for bidirectional data transfer
 tmux             3.5a   81361b7185dc91fab4ab512ee5bf69e6f05da2abc0c38c55cffa7a741decd458  -                tmux - terminal multiplexer
+curl             8.9.1  5f33634895b126b487118a564e7b6d6f61faf34dd8bdca1bf9a9e0df211aaf46  musl-libc        Static curl with TLS - HTTP/HTTPS downloads REST API file transfers
+lua              5.4.7  9680691fba51b68796805eb8a3236ffffd313be24ba2a2fa3349cd6fbd3528b5  -                lua - powerful lightweight scripting language
+zstd             1.5.6  8ef65e646df53520e46011b44317f612b9598114ccdfd2d07c3174d5e94a4ef6  -                zstd - Zstandard fast real-time compression
+lz4              1.10.0 9143c04dfc85d612fd98b42cb2d33db364e53b6eed1762001962cd3ba92b3911  -                lz4 - extremely fast compression
