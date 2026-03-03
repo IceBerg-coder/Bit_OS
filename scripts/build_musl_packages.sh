@@ -40,6 +40,10 @@ UNZIP_VER="6.0";        UNZIP_URL="https://downloads.sourceforge.net/project/inf
 BC_VER="6.7.6";         BC_URL="https://github.com/gavinhoward/bc/releases/download/${BC_VER}/bc-${BC_VER}.tar.xz"
 GZIP_VER="1.13";        GZIP_URL="https://ftp.gnu.org/gnu/gzip/gzip-${GZIP_VER}.tar.gz"
 XZ_VER="5.6.3";         XZ_URL="https://github.com/tukaani-project/xz/releases/download/v${XZ_VER}/xz-${XZ_VER}.tar.gz"
+DIFFUTILS_VER="3.10";   DIFFUTILS_URL="https://ftp.gnu.org/gnu/diffutils/diffutils-${DIFFUTILS_VER}.tar.xz"
+FINDUTILS_VER="4.9.0";  FINDUTILS_URL="https://ftp.gnu.org/gnu/findutils/findutils-${FINDUTILS_VER}.tar.xz"
+SED_VER="4.9";           SED_URL="https://ftp.gnu.org/gnu/sed/sed-${SED_VER}.tar.gz"
+GAWK_VER="5.3.1";        GAWK_URL="https://ftp.gnu.org/gnu/gawk/gawk-${GAWK_VER}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -523,6 +527,73 @@ build_xz() {
     cd "$WORKSPACE_ROOT"
 }
 
+build_diffutils() {
+    _dl diffutils "$DIFFUTILS_URL"
+    rm -rf "$PKG_BUILD/diffutils-$DIFFUTILS_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/diffutils-$DIFFUTILS_VER"
+    log_info "Building diffutils $DIFFUTILS_VER (static) ..."
+    local SRC="$PKG_BUILD/diffutils-$DIFFUTILS_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" --disable-nls
+    make; make install
+    for bin in diff diff3 sdiff cmp; do
+        [ -f "$SRC/_install/bin/$bin" ] && \
+            _package "$bin" "$SRC/_install/bin/$bin" "$DIFFUTILS_VER" "-" \
+                "$bin - GNU diff utility"
+    done
+    cd "$WORKSPACE_ROOT"
+}
+
+build_findutils() {
+    _dl findutils "$FINDUTILS_URL"
+    rm -rf "$PKG_BUILD/findutils-$FINDUTILS_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/findutils-$FINDUTILS_VER"
+    log_info "Building findutils $FINDUTILS_VER (static) ..."
+    local SRC="$PKG_BUILD/findutils-$FINDUTILS_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" --disable-nls
+    make; make install
+    for bin in find xargs; do
+        [ -f "$SRC/_install/bin/$bin" ] && \
+            _package "$bin" "$SRC/_install/bin/$bin" "$FINDUTILS_VER" "-" \
+                "$bin - GNU findutils $bin"
+    done
+    cd "$WORKSPACE_ROOT"
+}
+
+build_sed() {
+    _dl sed "$SED_URL"
+    rm -rf "$PKG_BUILD/sed-$SED_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/sed-$SED_VER"
+    log_info "Building sed $SED_VER (static) ..."
+    local SRC="$PKG_BUILD/sed-$SED_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" --disable-nls
+    make; make install
+    _package "sed" "$SRC/_install/bin/sed" "$SED_VER" "-" \
+        "sed - GNU stream editor"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_gawk() {
+    _dl gawk "$GAWK_URL"
+    rm -rf "$PKG_BUILD/gawk-$GAWK_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/gawk-$GAWK_VER"
+    log_info "Building gawk $GAWK_VER (static) ..."
+    local SRC="$PKG_BUILD/gawk-$GAWK_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --disable-nls --disable-mpfr
+    make; make install
+    _package "gawk" "$SRC/_install/bin/gawk" "$GAWK_VER" "-" \
+        "gawk - GNU awk pattern scanning and processing language"
+    cd "$WORKSPACE_ROOT"
+}
+
 # ---------------------------------------------------------------------------
 # Sign
 # ---------------------------------------------------------------------------
@@ -586,12 +657,17 @@ main() {
         bc)          build_bc;                          sign_list ;;
         gzip)        build_gzip;                        sign_list ;;
         xz)          build_xz;                          sign_list ;;
+        diffutils)   build_diffutils;                    sign_list ;;
+        findutils)   build_findutils;                    sign_list ;;
+        sed)         build_sed;                          sign_list ;;
+        gawk)        build_gawk;                         sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
             build_musl_libc; build_strace; build_less; build_wget
             build_tree; build_vim; build_file
             build_zip; build_unzip; build_bc; build_gzip; build_xz
+            build_diffutils; build_findutils; build_sed; build_gawk
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;

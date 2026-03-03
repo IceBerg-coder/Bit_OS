@@ -38,3 +38,11 @@ unzip            6.0    ad1b6c779c3a74131e769d69c88a0e1eed13d4f08022f42294c461d0
 gzip             1.13   0286d6488fb3399c4dabde8d167a5b6bffe1f34fb02a35a28ae065b1b815c64d  -                gzip - compress and decompress files using LZ77 algorithm
 xz               5.6.3  ed80b47cac25a90e85492d583a83b8ccff1f65d5651576984742bf1901d2eb24  -                xz - compress and decompress XZ and LZMA files
 bc               6.7.6  2f05fde28b9a7cd7fed813ca852c2f3acc924154f9df2d96cd73de6beae8c51f  -                bc - arbitrary precision numeric processing language and calculator
+diff             3.10   aae0cc2398608867337ea84de0402169289b5a1a51e9e7631c781028add3abee  -                diff - GNU diff utility
+diff3            3.10   ff78e687ccfd20907920895bd88cbb10781711c375c85dc4d9b6e83edc822b8d  -                diff3 - GNU diff utility
+sdiff            3.10   b07f261bc108d1e063561a2811bb20bdbd34d1d73fda1fbe365671326713fb02  -                sdiff - GNU diff utility
+cmp              3.10   7f99921c570a6cc9971df30e871c717889a13ebc44625496c6fb66dd22f5323a  -                cmp - GNU diff utility
+find             4.9.0  4673d378b9df962320ced75d99b2643b2594eee45e5f5572410e2022fcec8ca3  -                find - GNU findutils find
+xargs            4.9.0  437e0221361768e9936205366ed34494adee5b2739cccd92930b9d8ec719e5e4  -                xargs - GNU findutils xargs
+sed              4.9    3989605f8c1ff64e54c9b9da9593c018efd8f7886ca0dcb16237903bc35447a7  -                sed - GNU stream editor
+gawk             5.3.1  1aa9f747c2d531321c5b86d18e2bd0d494cbb86541704407e7d355ed16ed7a9a  -                gawk - GNU awk pattern scanning and processing language
