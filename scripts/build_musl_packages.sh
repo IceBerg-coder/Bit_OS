@@ -65,6 +65,9 @@ EXPAT_VER="2.6.4";       EXPAT_URL="https://github.com/libexpat/libexpat/release
 GIT_VER="2.48.1";        GIT_URL="https://www.kernel.org/pub/software/scm/git/git-${GIT_VER}.tar.xz"
 LIBPCAP_VER="1.10.5";    LIBPCAP_URL="https://www.tcpdump.org/release/libpcap-${LIBPCAP_VER}.tar.xz"
 NMAP_VER="7.95";          NMAP_URL="https://nmap.org/dist/nmap-${NMAP_VER}.tar.bz2"
+UV_VER="0.10.7";          UV_URL="https://github.com/astral-sh/uv/releases/download/${UV_VER}/uv-x86_64-unknown-linux-musl.tar.gz"
+RUFF_VER="0.15.4";        RUFF_URL="https://github.com/astral-sh/ruff/releases/download/${RUFF_VER}/ruff-x86_64-unknown-linux-musl.tar.gz"
+TY_VER="0.0.20";          TY_URL="https://github.com/astral-sh/ty/releases/download/${TY_VER}/ty-x86_64-unknown-linux-musl.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -104,6 +107,35 @@ _package() {   # _package PKG_NAME BIN_PATH VERSION DEPS DESC
         >> "$WORKSPACE_ROOT/pkgs/packages.list"
     local SZ; SZ=$(du -sh "$STRIP_BIN" | awk '{print $1}')
     log_info "[+] Packaged: $PKG v$VER  size=$SZ  sha256=${SHA:0:16}..."
+}
+
+_package_tar() {  # _package_tar PKG_NAME INST_DIR VERSION DEPS DESC
+    # Packages an entire install dir tree as a .tar.gz stored as pkgs/$PKG.
+    # bpm detects gzip magic and extracts to / on install.
+    local PKG="$1" INST_DIR="$2" VER="$3" DEPS="$4" DESC="$5"
+    log_info "Packaging $PKG $VER as tarball ..."
+    # Strip all ELF files; ignore failures for non-ELF
+    find "$INST_DIR" -type f | while read -r F; do
+        "$STRIP" --strip-unneeded "$F" 2>/dev/null || true
+    done
+    # Trim: __pycache__, .pyc, test dirs, headers, pkgconfig
+    find "$INST_DIR" \( -name "__pycache__" -o -name "*.pyc" \
+         -o -name "idle_test" \) -exec rm -rf {} + 2>/dev/null || true
+    find "$INST_DIR" -type d \( -name "test" -o -name "tests" \) \
+         -exec rm -rf {} + 2>/dev/null || true
+    rm -rf "$INST_DIR/usr/include" "$INST_DIR/usr/share" 2>/dev/null || true
+    find "$INST_DIR" -name "pkgconfig" -type d -exec rm -rf {} + 2>/dev/null || true
+    # Create tarball with paths relative to INST_DIR (./usr/bin/..., ./usr/lib/...)
+    local OUT="$WORKSPACE_ROOT/pkgs/$PKG"
+    cd "$INST_DIR"
+    tar czf "$OUT" .
+    cd "$WORKSPACE_ROOT"
+    local SHA; SHA=$(sha256sum "$OUT" | awk '{print $1}')
+    local SZ; SZ=$(du -sh "$OUT" | awk '{print $1}')
+    sed -i "/^$PKG /d" "$WORKSPACE_ROOT/pkgs/packages.list" 2>/dev/null || true
+    printf "%-16s %-6s %s  %-16s %s\n" "$PKG" "$VER" "$SHA" "$DEPS" "$DESC" \
+        >> "$WORKSPACE_ROOT/pkgs/packages.list"
+    log_info "[+] Packaged (tarball): $PKG v$VER  size=$SZ  sha256=${SHA:0:16}..."
 }
 
 # ---------------------------------------------------------------------------
@@ -982,6 +1014,55 @@ build_git() {
     log_info "git: done"
 }
 
+build_uv() {
+    [ -f "$WORKSPACE_ROOT/pkgs/uv" ] && log_info "uv: already built" && return
+    log_info "Fetching uv $UV_VER (pre-built musl binary) ..."
+    local TMP="$PKG_BUILD/uv-$UV_VER"
+    mkdir -p "$TMP"
+    wget -q "$UV_URL" -O "$TMP/uv.tar.gz"
+    tar xzf "$TMP/uv.tar.gz" -C "$TMP"
+    _package "uv"  "$(find "$TMP" -name "uv"  -type f | head -1)" "$UV_VER"   "-" \
+        "uv - Python package manager (Astral)"
+    log_info "uv: done"
+}
+
+build_uvx() {
+    [ -f "$WORKSPACE_ROOT/pkgs/uvx" ] && log_info "uvx: already built" && return
+    log_info "Fetching uvx $UV_VER (pre-built musl binary) ..."
+    local TMP="$PKG_BUILD/uv-$UV_VER"
+    mkdir -p "$TMP"
+    # reuse the same tarball if already downloaded
+    [ ! -f "$TMP/uv.tar.gz" ] && wget -q "$UV_URL" -O "$TMP/uv.tar.gz"
+    tar xzf "$TMP/uv.tar.gz" -C "$TMP"
+    _package "uvx" "$(find "$TMP" -name "uvx" -type f | head -1)" "$UV_VER"   "-" \
+        "uvx - uv tool runner (Astral)"
+    log_info "uvx: done"
+}
+
+build_ruff() {
+    [ -f "$WORKSPACE_ROOT/pkgs/ruff" ] && log_info "ruff: already built" && return
+    log_info "Fetching ruff $RUFF_VER (pre-built musl binary) ..."
+    local TMP="$PKG_BUILD/ruff-$RUFF_VER"
+    mkdir -p "$TMP"
+    wget -q "$RUFF_URL" -O "$TMP/ruff.tar.gz"
+    tar xzf "$TMP/ruff.tar.gz" -C "$TMP"
+    _package "ruff" "$(find "$TMP" -name "ruff" -type f | head -1)" "$RUFF_VER" "-" \
+        "ruff - Python linter and formatter (Astral)"
+    log_info "ruff: done"
+}
+
+build_ty() {
+    [ -f "$WORKSPACE_ROOT/pkgs/ty" ] && log_info "ty: already built" && return
+    log_info "Fetching ty $TY_VER (pre-built musl binary) ..."
+    local TMP="$PKG_BUILD/ty-$TY_VER"
+    mkdir -p "$TMP"
+    wget -q "$TY_URL" -O "$TMP/ty.tar.gz"
+    tar xzf "$TMP/ty.tar.gz" -C "$TMP"
+    _package "ty"  "$(find "$TMP" -name "ty"  -type f | head -1)" "$TY_VER"   "-" \
+        "ty - Python type checker (Astral)"
+    log_info "ty: done"
+}
+
 build_libpcap() {
     [ -f "$SYSROOT/lib/libpcap.a" ] && log_info "libpcap: already built" && return
     _dl libpcap "$LIBPCAP_URL"
@@ -1073,7 +1154,7 @@ build_python3() {
     LIBS="-lz -ldl -lm -lpthread" \
     ./configure \
         --host="$TARGET" --build=x86_64-linux-gnu \
-        --prefix="$SRC/_install" \
+        --prefix=/usr \
         --with-build-python="$HOST_PY" \
         --disable-optimizations \
         --disable-shared \
@@ -1087,9 +1168,9 @@ build_python3() {
         ac_cv_buggy_getaddrinfo=no
     # Build with parallelism
     make -j$(nproc)
-    make install
-    _package "python3" "$SRC/_install/bin/python3" "$PYTHON3_VER" "-" \
-        "python3 - Python 3 interpreter"
+    make install DESTDIR="$SRC/_install"
+    _package_tar "python3" "$SRC/_install" "$PYTHON3_VER" "-" \
+        "python3 - Python 3 interpreter + stdlib"
     cd "$WORKSPACE_ROOT"
 }
 
@@ -1179,6 +1260,10 @@ main() {
         sqlite3)     build_sqlite3;                        sign_list ;;
         python3)     build_sysroot; build_python3;         sign_list ;;
         git)         build_sysroot; build_git;              sign_list ;;
+        uv)          build_uv;                              sign_list ;;
+        uvx)         build_uvx;                             sign_list ;;
+        ruff)        build_ruff;                            sign_list ;;
+        ty)          build_ty;                              sign_list ;;
         nmap)        build_sysroot; build_nmap;              sign_list ;;
         all)
             build_sysroot
@@ -1195,6 +1280,7 @@ main() {
             build_python3
             build_git
             build_nmap
+            build_uv; build_uvx; build_ruff; build_ty
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;
