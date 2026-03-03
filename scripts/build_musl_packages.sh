@@ -47,6 +47,9 @@ GAWK_VER="5.3.1";        GAWK_URL="https://ftp.gnu.org/gnu/gawk/gawk-${GAWK_VER}
 PATCH_VER="2.7.6";       PATCH_URL="https://ftp.gnu.org/gnu/patch/patch-${PATCH_VER}.tar.gz"
 TAR_VER="1.35";          TAR_URL="https://ftp.gnu.org/gnu/tar/tar-${TAR_VER}.tar.gz"
 GREP_VER="3.11";         GREP_URL="https://ftp.gnu.org/gnu/grep/grep-${GREP_VER}.tar.gz"
+MAKE_VER="4.4.1";        MAKE_URL="https://ftp.gnu.org/gnu/make/make-${MAKE_VER}.tar.gz"
+WHICH_VER="2.21";        WHICH_URL="https://ftp.gnu.org/gnu/which/which-${WHICH_VER}.tar.gz"
+OPENSSH_VER="9.9p1";     OPENSSH_URL="https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-${OPENSSH_VER}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -644,6 +647,73 @@ build_grep() {
     cd "$WORKSPACE_ROOT"
 }
 
+build_make() {
+    _dl make "$MAKE_URL"
+    rm -rf "$PKG_BUILD/make-$MAKE_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/make-$MAKE_VER"
+    log_info "Building make $MAKE_VER (static) ..."
+    local SRC="$PKG_BUILD/make-$MAKE_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --disable-nls --without-guile
+    make; make install
+    _package "make" "$SRC/_install/bin/make" "$MAKE_VER" "-" \
+        "make - GNU make utility to maintain groups of programs"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_which() {
+    _dl which "$WHICH_URL"
+    rm -rf "$PKG_BUILD/which-$WHICH_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/which-$WHICH_VER"
+    log_info "Building which $WHICH_VER (static) ..."
+    local SRC="$PKG_BUILD/which-$WHICH_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install"
+    make; make install
+    _package "which" "$SRC/_install/bin/which" "$WHICH_VER" "-" \
+        "which - show full path of shell commands"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_openssh() {
+    _dl openssh "$OPENSSH_URL"
+    rm -rf "$PKG_BUILD/openssh-$OPENSSH_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/openssh-$OPENSSH_VER"
+    log_info "Building openssh $OPENSSH_VER (static) ..."
+    local SRC="$PKG_BUILD/openssh-$OPENSSH_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CPPFLAGS="-I$SYSROOT/include" \
+    LDFLAGS="-L$SYSROOT/lib -static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --with-ssl-dir="$SYSROOT" \
+        --with-zlib="$SYSROOT" \
+        --without-pam \
+        --without-selinux \
+        --without-libedit \
+        --without-pie \
+        --disable-strip \
+        --disable-lastlog \
+        --disable-utmp \
+        --disable-utmpx \
+        --disable-wtmp \
+        --disable-wtmpx \
+        LIBS="-ldl -lpthread"
+    make ssh scp sftp ssh-keygen
+    mkdir -p "$SRC/_install/bin"
+    for bin in ssh scp sftp ssh-keygen; do
+        install -s -m 755 "$SRC/$bin" "$SRC/_install/bin/$bin"
+    done
+    for bin in ssh scp sftp ssh-keygen; do
+        _package "$bin" "$SRC/_install/bin/$bin" "$OPENSSH_VER" "-" \
+            "$bin - OpenSSH $bin client"
+    done
+    cd "$WORKSPACE_ROOT"
+}
+
 # ---------------------------------------------------------------------------
 # Sign
 # ---------------------------------------------------------------------------
@@ -714,6 +784,9 @@ main() {
         patch)       build_patch;                        sign_list ;;
         tar)         build_tar;                          sign_list ;;
         grep)        build_grep;                         sign_list ;;
+        make)        build_make;                         sign_list ;;
+        which)       build_which;                        sign_list ;;
+        openssh)     build_openssh;                      sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
@@ -722,6 +795,7 @@ main() {
             build_zip; build_unzip; build_bc; build_gzip; build_xz
             build_diffutils; build_findutils; build_sed; build_gawk
             build_patch; build_tar; build_grep
+            build_make; build_which; build_openssh
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;

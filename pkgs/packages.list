@@ -49,3 +49,9 @@ gawk             5.3.1  1aa9f747c2d531321c5b86d18e2bd0d494cbb86541704407e7d355ed
 patch            2.7.6  13fba4b8ac976130b3c97e1ca6ed866e18804aae0264246c79bedb6848f81420  -                patch - apply a diff file to an original
 tar              1.35   5fd0e6bf697318fe21319dd002655b0882c341ed0e5fda711a5ba26195f6c932  -                tar - GNU tape archiver
 grep             3.11   272e81214442c814bdf6764e75d37156aae7b3922f26a69ebd7720c8cdd97998  -                grep - GNU grep, egrep, fgrep — print lines matching a pattern
+make             4.4.1  0226dfe8eff0cb1f98cda4b00949d6c5df1e5a8ffcec0091f402829c378e198d  -                make - GNU make utility to maintain groups of programs
+which            2.21   409fa8cc71538c1b638dcf439aa03659a0acbcd1a9e00a8c73c7e88b10388079  -                which - show full path of shell commands
+ssh              9.9p1  d884b1f607e0945fb116267d8463bb812401b9ae92682020b150b416c5b74117  -                ssh - OpenSSH ssh client
+scp              9.9p1  0ba3048f681bf9ac22d1cf902dc45e87c167b01780c6284ab832d089fdb79763  -                scp - OpenSSH scp client
+sftp             9.9p1  932271ebd4312926963255a931f81ff5748330e20942eb35e6e51153eed5bf64  -                sftp - OpenSSH sftp client
+ssh-keygen       9.9p1  cc0abcdd8d71de6909f04e2da21c4389df7061d0aac66a15f5c908669d6a6e12  -                ssh-keygen - OpenSSH ssh-keygen client
