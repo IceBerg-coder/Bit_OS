@@ -56,6 +56,8 @@ TMUX_VER="3.5a";         TMUX_URL="https://github.com/tmux/tmux/releases/downloa
 LUA_VER="5.4.7";         LUA_URL="https://www.lua.org/ftp/lua-${LUA_VER}.tar.gz"
 ZSTD_VER="1.5.6";        ZSTD_URL="https://github.com/facebook/zstd/releases/download/v${ZSTD_VER}/zstd-${ZSTD_VER}.tar.gz"
 LZ4_VER="1.10.0";        LZ4_URL="https://github.com/lz4/lz4/releases/download/v${LZ4_VER}/lz4-${LZ4_VER}.tar.gz"
+IPERF3_VER="3.17.1";     IPERF3_URL="https://github.com/esnet/iperf/releases/download/${IPERF3_VER}/iperf-${IPERF3_VER}.tar.gz"
+SQLITE_VER="3490100";    SQLITE_URL="https://www.sqlite.org/2025/sqlite-autoconf-${SQLITE_VER}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -823,8 +825,59 @@ build_lz4() {
     cd "$WORKSPACE_ROOT"
 }
 
-# ---------------------------------------------------------------------------
-# Sign
+build_openssl_cli() {
+    # openssl binary is already compiled as part of build_sysroot/build_openssl
+    # just strip and package it directly from the sysroot bin
+    log_info "Packaging openssl CLI $OPENSSL_VER ..."
+    local BIN="$SYSROOT/bin/openssl"
+    if [ ! -f "$BIN" ]; then
+        # trigger a build if not present
+        build_openssl
+    fi
+    local TMP="$PKG_BUILD/_openssl-cli"
+    mkdir -p "$TMP"
+    cp "$BIN" "$TMP/openssl"
+    "$STRIP" "$TMP/openssl" 2>/dev/null || true
+    _package "openssl" "$TMP/openssl" "$OPENSSL_VER" "-" \
+        "openssl - OpenSSL cryptography toolkit CLI"
+}
+
+build_iperf3() {
+    _dl iperf3 "$IPERF3_URL"
+    rm -rf "$PKG_BUILD/iperf-$IPERF3_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/iperf-$IPERF3_VER"
+    log_info "Building iperf3 $IPERF3_VER (static) ..."
+    local SRC="$PKG_BUILD/iperf-$IPERF3_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --disable-shared --enable-static --without-sctp
+    make; make install
+    _package "iperf3" "$SRC/_install/bin/iperf3" "$IPERF3_VER" "-" \
+        "iperf3 - network bandwidth measurement tool"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_sqlite3() {
+    # build sqlite into sysroot so python3/etc can link against it
+    local SQLITE_YEAR="2025"
+    _dl sqlite "$SQLITE_URL"
+    rm -rf "$PKG_BUILD/sqlite-autoconf-$SQLITE_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/sqlite-autoconf-$SQLITE_VER"
+    log_info "Building sqlite3 $SQLITE_VER (static) ..."
+    local SRC="$PKG_BUILD/sqlite-autoconf-$SQLITE_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --disable-shared --enable-static
+    make; make install
+    # Install headers + libs into sysroot for future packages (python3, etc)
+    cp -r "$SRC/_install/include/"* "$SYSROOT/include/"
+    cp -r "$SRC/_install/lib/"* "$SYSROOT/lib/"
+    _package "sqlite3" "$SRC/_install/bin/sqlite3" "$SQLITE_VER" "-" \
+        "sqlite3 - self-contained SQL database engine CLI"
+    cd "$WORKSPACE_ROOT"
+}
 # ---------------------------------------------------------------------------
 sign_list() {
     if [ -f "$WORKSPACE_ROOT/pkgs/keys/signing_key.pem" ]; then
@@ -902,6 +955,9 @@ main() {
         lua)         build_lua;                            sign_list ;;
         zstd)        build_zstd;                           sign_list ;;
         lz4)         build_lz4;                            sign_list ;;
+        openssl)     build_sysroot; build_openssl_cli;     sign_list ;;
+        iperf3)      build_iperf3;                         sign_list ;;
+        sqlite3)     build_sqlite3;                        sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
@@ -913,6 +969,7 @@ main() {
             build_make; build_which; build_openssh
             build_socat; build_tmux
             build_lua; build_zstd; build_lz4
+            build_openssl_cli; build_iperf3; build_sqlite3
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;
