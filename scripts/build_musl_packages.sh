@@ -29,6 +29,9 @@ NANO_VER="7.2";         NANO_URL="https://ftp.gnu.org/gnu/nano/nano-${NANO_VER}.
 RSYNC_VER="3.4.1";      RSYNC_URL="https://github.com/RsyncProject/rsync/releases/download/v${RSYNC_VER}/rsync-${RSYNC_VER}.tar.gz"
 HTOP_VER="3.3.0";       HTOP_URL="https://github.com/htop-dev/htop/releases/download/${HTOP_VER}/htop-${HTOP_VER}.tar.xz"
 JQ_VER="1.7.1";         JQ_URL="https://github.com/jqlang/jq/releases/download/jq-${JQ_VER}/jq-${JQ_VER}.tar.gz"
+STRACE_VER="6.19";      STRACE_URL="https://github.com/strace/strace/releases/download/v${STRACE_VER}/strace-${STRACE_VER}.tar.xz"
+LESS_VER="668";         LESS_URL="https://www.greenwoodsoftware.com/less/less-${LESS_VER}.tar.gz"
+WGET_VER="1.24.5";      WGET_URL="https://ftp.gnu.org/gnu/wget/wget-${WGET_VER}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -267,6 +270,89 @@ build_musl_libc() {
     log_info "[+] bpm will install this to \$BPM_BIN/musl-libc and /lib/ld-musl-x86_64.so.1"
 }
 
+build_strace() {
+    _dl strace "$STRACE_URL"
+    rm -rf "$PKG_BUILD/strace-$STRACE_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/strace-$STRACE_VER"
+    log_info "Building strace $STRACE_VER (static) ..."
+    local SRC="$PKG_BUILD/strace-$STRACE_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --enable-static --disable-shared --disable-mpers
+    make; make install
+    _package "strace" "$SRC/_install/bin/strace" "$STRACE_VER" "-" \
+        "strace - system call tracer for debugging and tracing processes"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_less() {
+    _dl less "$LESS_URL"
+    rm -rf "$PKG_BUILD/less-$LESS_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/less-$LESS_VER"
+    log_info "Building less $LESS_VER (static + ncurses) ..."
+    local SRC="$PKG_BUILD/less-$LESS_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CPPFLAGS="-I$SYSROOT/include -I$SYSROOT/include/ncursesw" \
+    LDFLAGS="-L$SYSROOT/lib -static" \
+    LIBS="-lncursesw -ltinfo" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install"
+    make; make install
+    _package "less" "$SRC/_install/bin/less" "$LESS_VER" "-" \
+        "less - feature-rich terminal pager for viewing files and command output"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_wget() {
+    _dl wget "$WGET_URL"
+    rm -rf "$PKG_BUILD/wget-$WGET_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/wget-$WGET_VER"
+    log_info "Building wget $WGET_VER (static + openssl + zlib) ..."
+    local SRC="$PKG_BUILD/wget-$WGET_VER"
+    # Minimal pkg-config wrapper so wget configure doesn't fail without system pkg-config
+    local FAKE_PC="$PKG_BUILD/_pkgconfig"
+    mkdir -p "$FAKE_PC"
+    cat > "$FAKE_PC/pkg-config" << PCEOF
+#!/bin/sh
+SYSROOT="$SYSROOT"
+# Handle version queries
+case "\$1" in
+    --version|--atleast-pkgconfig-version) echo "0.29.2"; exit 0 ;;
+    --modversion) echo "1.0"; exit 0 ;;
+esac
+# Handle --cflags / --libs for known packages
+CFLAGS="-I\$SYSROOT/include"
+LIBS="-L\$SYSROOT/lib -lssl -lcrypto -lz -ldl -lpthread"
+for arg in "\$@"; do
+    case "\$arg" in --cflags) echo "\$CFLAGS"; exit 0 ;; --libs) echo "\$LIBS"; exit 0 ;; esac
+done
+exit 0
+PCEOF
+    chmod +x "$FAKE_PC/pkg-config"
+    cd "$SRC"
+    PATH="$FAKE_PC:$PATH" \
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    PKG_CONFIG="$FAKE_PC/pkg-config" \
+    PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig" \
+    OPENSSL_CFLAGS="-I$SYSROOT/include" \
+    OPENSSL_LIBS="-L$SYSROOT/lib -lssl -lcrypto -lz -ldl -lpthread" \
+    ZLIB_CFLAGS="-I$SYSROOT/include" \
+    ZLIB_LIBS="-L$SYSROOT/lib -lz" \
+    CPPFLAGS="-I$SYSROOT/include" \
+    LDFLAGS="-L$SYSROOT/lib -L$SYSROOT/lib64 -static" \
+    LIBS="-lssl -lcrypto -lz -ldl -lpthread" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --with-ssl=openssl --disable-nls --disable-rpath \
+        --without-libpsl --without-libuuid --without-metalink \
+        --disable-pcre2 --disable-pcre --disable-iri
+    make; make install
+    _package "wget" "$SRC/_install/bin/wget" "$WGET_VER" "-" \
+        "wget - non-interactive network downloader with HTTPS support"
+    cd "$WORKSPACE_ROOT"
+}
+
 # ---------------------------------------------------------------------------
 # Sign
 # ---------------------------------------------------------------------------
@@ -283,7 +369,7 @@ sign_list() {
 # Main
 # ---------------------------------------------------------------------------
 usage() {
-    echo "Usage: $0 [all | sysroot | curl | nano | rsync | htop | jq | musl-libc]"
+    echo "Usage: $0 [all | sysroot | curl | nano | rsync | htop | jq | musl-libc | strace | less | wget]"
     echo "  all     - sysroot libs + all packages (default)"
     echo "  sysroot - zlib + openssl + ncurses + readline only"
     echo "  curl / nano / rsync / htop / jq  - sysroot + named package"
@@ -319,10 +405,13 @@ main() {
         htop)        build_sysroot; build_htop;       sign_list ;;
         jq)          build_jq;                        sign_list ;;
         musl-libc)   build_musl_libc;                 sign_list ;;
+        strace)      build_strace;                    sign_list ;;
+        less)        build_sysroot; build_less;        sign_list ;;
+        wget)        build_sysroot; build_wget;        sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
-            build_musl_libc
+            build_musl_libc; build_strace; build_less; build_wget
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;
