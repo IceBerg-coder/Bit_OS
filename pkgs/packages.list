@@ -64,3 +64,4 @@ openssl          3.3.2  d2bd788d62ea9032c075228f2f745ef442a3f47f8727c29ad62b00b7
 iperf3           3.17.1 7400b23002185e47858676a1d5ac878b6f4812024a9cd8f67580f28338f4ade7  -                iperf3 - network bandwidth measurement tool
 sqlite3          3490100 61d7846bf137c4c509f9c09d65a2bec5cdb37b9ba24e520ebc621b4c7dcbf399  -                sqlite3 - self-contained SQL database engine CLI
 python3          3.13.2 209c3df13a5a70739d3122e9b3eec75131f3531f4c0fb0a7829880d5ad2a48c7  -                python3 - Python 3 interpreter
+git              2.48.1 713a6e427ae04ede02bd92b102ff83c199da804a1837e28510ab113364eefdc0  -                git - distributed version control system

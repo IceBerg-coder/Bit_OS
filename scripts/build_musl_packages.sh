@@ -61,6 +61,8 @@ SQLITE_VER="3490100";    SQLITE_URL="https://www.sqlite.org/2025/sqlite-autoconf
 LIBFFI_VER="3.4.6";      LIBFFI_URL="https://github.com/libffi/libffi/releases/download/v${LIBFFI_VER}/libffi-${LIBFFI_VER}.tar.gz"
 BZIP2_VER="1.0.8";       BZIP2_URL="https://sourceware.org/pub/bzip2/bzip2-${BZIP2_VER}.tar.gz"
 PYTHON3_VER="3.13.2";    PYTHON3_URL="https://www.python.org/ftp/python/${PYTHON3_VER}/Python-${PYTHON3_VER}.tar.xz"
+EXPAT_VER="2.6.4";       EXPAT_URL="https://github.com/libexpat/libexpat/releases/download/R_2_6_4/expat-${EXPAT_VER}.tar.xz"
+GIT_VER="2.48.1";        GIT_URL="https://www.kernel.org/pub/software/scm/git/git-${GIT_VER}.tar.xz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -919,6 +921,65 @@ build_bzip2() {
     log_info "bzip2: done"
 }
 
+build_expat() {
+    [ -f "$SYSROOT/lib/libexpat.a" ] && log_info "expat: already built" && return
+    _dl expat "$EXPAT_URL"
+    rm -rf "$PKG_BUILD/expat-$EXPAT_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/expat-$EXPAT_VER"
+    log_info "Building expat $EXPAT_VER (static) ..."
+    cd "$PKG_BUILD/expat-$EXPAT_VER"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CFLAGS="-O2 -fPIC" \
+    ./configure --host="$TARGET" --build=x86_64-linux-gnu \
+        --prefix="$SYSROOT" \
+        --enable-static --disable-shared \
+        --without-docbook
+    make -j$(nproc)
+    make install
+    cd "$WORKSPACE_ROOT"
+    log_info "expat: done"
+}
+
+build_git() {
+    build_expat
+    _dl git "$GIT_URL"
+    rm -rf "$PKG_BUILD/git-$GIT_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/git-$GIT_VER"
+    log_info "Building git $GIT_VER (static, musl) ..."
+    local SRC="$PKG_BUILD/git-$GIT_VER"
+    cd "$SRC"
+    make -j$(nproc) \
+        CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+        NO_CURL=1 \
+        NO_TCLTK=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_GETTEXT=1 \
+        NO_ICONV=1 \
+        NO_REGEX=NeedsStartEnd \
+        EXPATDIR="$SYSROOT" \
+        CFLAGS="-O2 -I$SYSROOT/include" \
+        LDFLAGS="-L$SYSROOT/lib -static" \
+        EXTLIBS="-lssl -lcrypto -lexpat -lz -lpthread -ldl" \
+        prefix=/usr
+    make install \
+        CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+        NO_CURL=1 NO_TCLTK=1 NO_PERL=1 NO_PYTHON=1 NO_GETTEXT=1 NO_ICONV=1 \
+        NO_REGEX=NeedsStartEnd \
+        EXPATDIR="$SYSROOT" \
+        CFLAGS="-O2 -I$SYSROOT/include" \
+        LDFLAGS="-L$SYSROOT/lib -static" \
+        EXTLIBS="-lssl -lcrypto -lexpat -lz -lpthread -ldl" \
+        prefix=/usr \
+        DESTDIR="$SRC/_install"
+    local GIT_BIN="$SRC/_install/usr/bin/git"
+    "$STRIP" "$GIT_BIN"
+    _package "git" "$GIT_BIN" "$GIT_VER" "-" \
+        "git - distributed version control system"
+    cd "$WORKSPACE_ROOT"
+    log_info "git: done"
+}
+
 build_python3() {
     build_libffi
     build_bzip2
@@ -989,6 +1050,7 @@ build_sysroot() {
     build_libevent
     build_libffi
     build_bzip2
+    build_expat
     log_info "--- Sysroot complete ---"
 }
 
@@ -1042,6 +1104,7 @@ main() {
         iperf3)      build_iperf3;                         sign_list ;;
         sqlite3)     build_sqlite3;                        sign_list ;;
         python3)     build_sysroot; build_python3;         sign_list ;;
+        git)         build_sysroot; build_git;              sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
@@ -1055,6 +1118,7 @@ main() {
             build_lua; build_zstd; build_lz4
             build_openssl_cli; build_iperf3; build_sqlite3
             build_python3
+            build_git
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;
