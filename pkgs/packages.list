@@ -55,3 +55,5 @@ ssh              9.9p1  d884b1f607e0945fb116267d8463bb812401b9ae92682020b150b416
 scp              9.9p1  0ba3048f681bf9ac22d1cf902dc45e87c167b01780c6284ab832d089fdb79763  -                scp - OpenSSH scp client
 sftp             9.9p1  932271ebd4312926963255a931f81ff5748330e20942eb35e6e51153eed5bf64  -                sftp - OpenSSH sftp client
 ssh-keygen       9.9p1  cc0abcdd8d71de6909f04e2da21c4389df7061d0aac66a15f5c908669d6a6e12  -                ssh-keygen - OpenSSH ssh-keygen client
+socat            1.8.0.1 ec428c901cd15a20f200f7990d3a700f321e395d6e7ef8378f87504ac197a9b0  -                socat - multipurpose relay for bidirectional data transfer
+tmux             3.5a   81361b7185dc91fab4ab512ee5bf69e6f05da2abc0c38c55cffa7a741decd458  -                tmux - terminal multiplexer

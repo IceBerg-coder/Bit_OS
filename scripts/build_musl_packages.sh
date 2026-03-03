@@ -50,6 +50,9 @@ GREP_VER="3.11";         GREP_URL="https://ftp.gnu.org/gnu/grep/grep-${GREP_VER}
 MAKE_VER="4.4.1";        MAKE_URL="https://ftp.gnu.org/gnu/make/make-${MAKE_VER}.tar.gz"
 WHICH_VER="2.21";        WHICH_URL="https://ftp.gnu.org/gnu/which/which-${WHICH_VER}.tar.gz"
 OPENSSH_VER="9.9p1";     OPENSSH_URL="https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-${OPENSSH_VER}.tar.gz"
+LIBEVENT_VER="2.1.12";  LIBEVENT_URL="https://github.com/libevent/libevent/releases/download/release-${LIBEVENT_VER}-stable/libevent-${LIBEVENT_VER}-stable.tar.gz"
+SOCAT_VER="1.8.0.1";    SOCAT_URL="http://www.dest-unreach.org/socat/download/socat-${SOCAT_VER}.tar.gz"
+TMUX_VER="3.5a";         TMUX_URL="https://github.com/tmux/tmux/releases/download/${TMUX_VER}/tmux-${TMUX_VER}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -714,6 +717,60 @@ build_openssh() {
     cd "$WORKSPACE_ROOT"
 }
 
+build_libevent() {
+    [ -f "$SYSROOT/lib/libevent.a" ] && log_info "libevent: already built" && return
+    _dl libevent "$LIBEVENT_URL"
+    rm -rf "$PKG_BUILD/libevent-$LIBEVENT_VER-stable"
+    _unpack "$DL_OUT" "$PKG_BUILD/libevent-$LIBEVENT_VER-stable"
+    log_info "Building libevent $LIBEVENT_VER (static) ..."
+    cd "$PKG_BUILD/libevent-$LIBEVENT_VER-stable"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    ./configure --host="$TARGET" --prefix="$SYSROOT" \
+        --disable-shared --enable-static \
+        --disable-openssl --disable-samples --disable-doxygen-html
+    make; make install
+    cd "$WORKSPACE_ROOT"
+    log_info "libevent: done"
+}
+
+build_socat() {
+    _dl socat "$SOCAT_URL"
+    rm -rf "$PKG_BUILD/socat-$SOCAT_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/socat-$SOCAT_VER"
+    log_info "Building socat $SOCAT_VER (static) ..."
+    local SRC="$PKG_BUILD/socat-$SOCAT_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CPPFLAGS="-I$SYSROOT/include" \
+    LDFLAGS="-L$SYSROOT/lib -static" \
+    LIBS="-lssl -lcrypto -lz -ldl -lpthread" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --disable-openssl-base-md5 --disable-fips
+    make; make install
+    _package "socat" "$SRC/_install/bin/socat" "$SOCAT_VER" "-" \
+        "socat - multipurpose relay for bidirectional data transfer"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_tmux() {
+    _dl tmux "$TMUX_URL"
+    rm -rf "$PKG_BUILD/tmux-$TMUX_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/tmux-$TMUX_VER"
+    log_info "Building tmux $TMUX_VER (static) ..."
+    local SRC="$PKG_BUILD/tmux-$TMUX_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CPPFLAGS="-I$SYSROOT/include -I$SYSROOT/include/ncursesw" \
+    LDFLAGS="-L$SYSROOT/lib -static" \
+    LIBS="-lncursesw -ltinfo -levent -lpthread" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --enable-static --disable-utf8proc
+    make; make install
+    _package "tmux" "$SRC/_install/bin/tmux" "$TMUX_VER" "-" \
+        "tmux - terminal multiplexer"
+    cd "$WORKSPACE_ROOT"
+}
+
 # ---------------------------------------------------------------------------
 # Sign
 # ---------------------------------------------------------------------------
@@ -743,6 +800,7 @@ build_sysroot() {
     build_openssl
     build_ncurses
     build_readline
+    build_libevent
     log_info "--- Sysroot complete ---"
 }
 
@@ -787,6 +845,8 @@ main() {
         make)        build_make;                         sign_list ;;
         which)       build_which;                        sign_list ;;
         openssh)     build_openssh;                      sign_list ;;
+        socat)       build_sysroot; build_socat;           sign_list ;;
+        tmux)        build_sysroot; build_tmux;            sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
@@ -796,6 +856,7 @@ main() {
             build_diffutils; build_findutils; build_sed; build_gawk
             build_patch; build_tar; build_grep
             build_make; build_which; build_openssh
+            build_socat; build_tmux
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;
