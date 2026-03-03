@@ -30,3 +30,6 @@ musl-libc        1.2.5  b83bf7c49014bc5be4f2e2842def178142b38896d7de4279c2dcebcd
 strace           6.19   027eedac84fbacf88c2fd3a19533ab3903ae29178f8cbf72affb029d562dc50c  -                strace - system call tracer for debugging and tracing processes
 less             668    288f61342f78c13a0905a70936f643f73754ffca498e237a2b8b5fabbc9ee236  -                less - feature-rich terminal pager for viewing files and command output
 wget             1.24.5 c6167b97a073dd379c1d7e0f92696e00e9f33546a5ea7a45fa5fea09b924ab20  -                wget - non-interactive network downloader with HTTPS support
+tree             2.1.1  2fa5996879141f5b145323be5b39931d06f17415dc77568e479b2f9b63426741  -                tree - recursive directory listing with colours and file counts
+vim              9.1.0000 0e03358b6eb3aee3091748658abcf60c194316d66844135dd95ea91a44dd6b46  -                vim - advanced text editor with syntax highlighting and huge feature set
+file             5.46   24690ae9dd7d6c98212f969d940aa1418241ef84d9471fc29154912178d6a200  -                file - determine file type by magic number inspection

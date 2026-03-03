@@ -32,6 +32,9 @@ JQ_VER="1.7.1";         JQ_URL="https://github.com/jqlang/jq/releases/download/j
 STRACE_VER="6.19";      STRACE_URL="https://github.com/strace/strace/releases/download/v${STRACE_VER}/strace-${STRACE_VER}.tar.xz"
 LESS_VER="668";         LESS_URL="https://www.greenwoodsoftware.com/less/less-${LESS_VER}.tar.gz"
 WGET_VER="1.24.5";      WGET_URL="https://ftp.gnu.org/gnu/wget/wget-${WGET_VER}.tar.gz"
+TREE_VER="2.1.1";       TREE_URL="https://github.com/Old-Man-Programmer/tree/archive/refs/tags/${TREE_VER}.tar.gz"
+VIM_VER="9.1.0000";     VIM_URL="https://github.com/vim/vim/archive/refs/tags/v${VIM_VER}.tar.gz"
+FILE_VER="5.46";        FILE_URL="https://astron.com/pub/file/file-${FILE_VER}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -353,6 +356,85 @@ PCEOF
     cd "$WORKSPACE_ROOT"
 }
 
+build_tree() {
+    _dl tree "$TREE_URL"
+    rm -rf "$PKG_BUILD/tree-$TREE_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/tree-$TREE_VER"
+    log_info "Building tree $TREE_VER (static) ..."
+    local SRC="$PKG_BUILD/tree-$TREE_VER"
+    cd "$SRC"
+    make CC="$CC" \
+        CFLAGS="-O2 -static" \
+        LDFLAGS="-static" \
+        tree
+    _package "tree" "$SRC/tree" "$TREE_VER" "-" \
+        "tree - recursive directory listing with colours and file counts"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_vim() {
+    _dl vim "$VIM_URL"
+    rm -rf "$PKG_BUILD/vim-$VIM_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/vim-$VIM_VER"
+    log_info "Building vim $VIM_VER (static + ncurses) ..."
+    local SRC="$PKG_BUILD/vim-$VIM_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CPPFLAGS="-I$SYSROOT/include -I$SYSROOT/include/ncursesw" \
+    LDFLAGS="-L$SYSROOT/lib -static" \
+    LIBS="-lncursesw -ltinfo" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --with-tlib=ncursesw \
+        --disable-gui --without-x --disable-gtktest \
+        --disable-netbeans --disable-canberra \
+        --disable-selinux --disable-nls \
+        --with-features=huge \
+        --enable-multibyte \
+        --disable-perlinterp --disable-pythoninterp \
+        --disable-python3interp --disable-rubyinterp \
+        --disable-luainterp --disable-tclinterp
+    make; make install
+    _package "vim" "$SRC/_install/bin/vim" "$VIM_VER" "-" \
+        "vim - advanced text editor with syntax highlighting and huge feature set"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_file() {
+    _dl file "$FILE_URL"
+    rm -rf "$PKG_BUILD/file-$FILE_VER" "$PKG_BUILD/file-${FILE_VER}-native"
+    _unpack "$DL_OUT" "$PKG_BUILD/file-$FILE_VER"
+    log_info "Building file $FILE_VER (static + zlib) ..."
+    local SRC="$PKG_BUILD/file-$FILE_VER"
+
+    # Native build to produce magic.mgc (cross-compiled binary can't run on host)
+    cp -a "$SRC" "$PKG_BUILD/file-${FILE_VER}-native"
+    cd "$PKG_BUILD/file-${FILE_VER}-native"
+    ./configure --prefix="$PKG_BUILD/file-${FILE_VER}-native/_install" \
+        --disable-shared >/dev/null 2>&1
+    make -j$(nproc) >/dev/null 2>&1
+    local MAGIC_MGC="$PKG_BUILD/file-${FILE_VER}-native/magic/magic.mgc"
+    [ ! -f "$MAGIC_MGC" ] && MAGIC_MGC=$(find "$PKG_BUILD/file-${FILE_VER}-native" -name "magic.mgc" | head -1)
+    if [ -z "$MAGIC_MGC" ]; then log_err "Native file build failed — cannot get magic.mgc"; exit 1; fi
+    log_info "  Native magic.mgc: $(ls -sh $MAGIC_MGC | awk '{print $1}')"
+
+    # Cross-compile with pre-built magic.mgc injected
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CPPFLAGS="-I$SYSROOT/include" \
+    LDFLAGS="-L$SYSROOT/lib -static" \
+    LIBS="-lz" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --disable-shared --enable-static \
+        --disable-libseccomp --disable-bzlib --disable-xzlib
+    cp "$MAGIC_MGC" magic/magic.mgc
+    # Touch with future timestamp so make considers magic.mgc up-to-date
+    touch -t 203001010000 magic/magic.mgc
+    make; make install
+    _package "file" "$SRC/_install/bin/file" "$FILE_VER" "-" \
+        "file - determine file type by magic number inspection"
+    cd "$WORKSPACE_ROOT"
+}
+
 # ---------------------------------------------------------------------------
 # Sign
 # ---------------------------------------------------------------------------
@@ -408,10 +490,14 @@ main() {
         strace)      build_strace;                    sign_list ;;
         less)        build_sysroot; build_less;        sign_list ;;
         wget)        build_sysroot; build_wget;        sign_list ;;
+        tree)        build_tree;                       sign_list ;;
+        vim)         build_sysroot; build_vim;          sign_list ;;
+        file)        build_sysroot; build_file;         sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
             build_musl_libc; build_strace; build_less; build_wget
+            build_tree; build_vim; build_file
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;
