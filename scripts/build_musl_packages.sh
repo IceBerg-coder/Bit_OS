@@ -58,6 +58,9 @@ ZSTD_VER="1.5.6";        ZSTD_URL="https://github.com/facebook/zstd/releases/dow
 LZ4_VER="1.10.0";        LZ4_URL="https://github.com/lz4/lz4/releases/download/v${LZ4_VER}/lz4-${LZ4_VER}.tar.gz"
 IPERF3_VER="3.17.1";     IPERF3_URL="https://github.com/esnet/iperf/releases/download/${IPERF3_VER}/iperf-${IPERF3_VER}.tar.gz"
 SQLITE_VER="3490100";    SQLITE_URL="https://www.sqlite.org/2025/sqlite-autoconf-${SQLITE_VER}.tar.gz"
+LIBFFI_VER="3.4.6";      LIBFFI_URL="https://github.com/libffi/libffi/releases/download/v${LIBFFI_VER}/libffi-${LIBFFI_VER}.tar.gz"
+BZIP2_VER="1.0.8";       BZIP2_URL="https://sourceware.org/pub/bzip2/bzip2-${BZIP2_VER}.tar.gz"
+PYTHON3_VER="3.13.2";    PYTHON3_URL="https://www.python.org/ftp/python/${PYTHON3_VER}/Python-${PYTHON3_VER}.tar.xz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -107,18 +110,21 @@ build_zlib() {
     _dl zlib "$ZLIB_URL"; _unpack "$DL_OUT" "$PKG_BUILD/zlib-$ZLIB_VER"
     log_info "Building zlib $ZLIB_VER ..."
     cd "$PKG_BUILD/zlib-$ZLIB_VER"
-    CC="$CC" AR="$AR" RANLIB="$RANLIB" ./configure --prefix="$SYSROOT" --static
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-O2 -fPIC" ./configure --prefix="$SYSROOT" --static
     make; make install
     cd "$WORKSPACE_ROOT"
     log_info "zlib: done"
 }
 
 build_openssl() {
-    [ -f "$SYSROOT/lib/libssl.a" ] && log_info "openssl: already built" && return
+    [ -f "$SYSROOT/lib/libssl.a" ] && \
+        grep -q "OPENSSL_THREADS" "$SYSROOT/include/openssl/configuration.h" 2>/dev/null && \
+        log_info "openssl: already built" && return
+    rm -f "$SYSROOT/lib/libssl.a" "$SYSROOT/lib/libcrypto.a"  # force rebuild if threads missing
     _dl openssl "$OPENSSL_URL"; _unpack "$DL_OUT" "$PKG_BUILD/openssl-$OPENSSL_VER"
-    log_info "Building openssl $OPENSSL_VER (static) ..."
+    log_info "Building openssl $OPENSSL_VER (static, threads) ..."
     cd "$PKG_BUILD/openssl-$OPENSSL_VER"
-    CC="$CC" ./Configure linux-x86_64 no-shared no-tests \
+    CC="$CC" ./Configure linux-x86_64 no-shared no-tests threads \
         --prefix="$SYSROOT" --openssldir="$SYSROOT/ssl" --libdir=lib -static -fPIC
     make; make install_sw
     # OpenSSL may install to lib64 on x86_64 — create compat symlinks in lib/
@@ -143,7 +149,7 @@ build_ncurses() {
     log_info "Building ncurses $NCURSES_VER (static) ..."
     cd "$PKG_BUILD/ncurses-$NCURSES_VER"
     mkdir -p "$SYSROOT/share/terminfo"
-    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-O2 -fPIC" \
     ./configure --host="$TARGET" --prefix="$SYSROOT" \
         --without-shared --without-tests --without-progs --without-manpages \
         --without-debug --enable-widec \
@@ -165,7 +171,7 @@ build_readline() {
     _dl readline "$READLINE_URL"; _unpack "$DL_OUT" "$PKG_BUILD/readline-$READLINE_VER"
     log_info "Building readline $READLINE_VER (static) ..."
     cd "$PKG_BUILD/readline-$READLINE_VER"
-    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-O2 -fPIC" \
     ./configure --host="$TARGET" --prefix="$SYSROOT" --disable-shared --enable-static
     make; make install
     cd "$WORKSPACE_ROOT"
@@ -730,6 +736,7 @@ build_libevent() {
     log_info "Building libevent $LIBEVENT_VER (static) ..."
     cd "$PKG_BUILD/libevent-$LIBEVENT_VER-stable"
     CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CFLAGS="-O2 -fPIC" \
     ./configure --host="$TARGET" --prefix="$SYSROOT" \
         --disable-shared --enable-static \
         --disable-openssl --disable-samples --disable-doxygen-html
@@ -878,6 +885,80 @@ build_sqlite3() {
         "sqlite3 - self-contained SQL database engine CLI"
     cd "$WORKSPACE_ROOT"
 }
+
+build_libffi() {
+    [ -f "$SYSROOT/lib/libffi.a" ] && log_info "libffi: already built" && return
+    _dl libffi "$LIBFFI_URL"
+    rm -rf "$PKG_BUILD/libffi-$LIBFFI_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/libffi-$LIBFFI_VER"
+    log_info "Building libffi $LIBFFI_VER (static) ..."
+    cd "$PKG_BUILD/libffi-$LIBFFI_VER"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CFLAGS="-O2 -fPIC" \
+    ./configure --host="$TARGET" --prefix="$SYSROOT" \
+        --disable-shared --enable-static --disable-docs
+    make; make install
+    # libffi installs headers under $SYSROOT/lib/libffi-x.y.z/include — copy to include/
+    find "$SYSROOT/lib" -name 'ffi.h' -exec cp {} "$SYSROOT/include/" \;
+    find "$SYSROOT/lib" -name 'ffitarget.h' -exec cp {} "$SYSROOT/include/" \;
+    cd "$WORKSPACE_ROOT"
+    log_info "libffi: done"
+}
+
+build_bzip2() {
+    [ -f "$SYSROOT/lib/libbz2.a" ] && log_info "bzip2: already built" && return
+    _dl bzip2 "$BZIP2_URL"
+    rm -rf "$PKG_BUILD/bzip2-$BZIP2_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/bzip2-$BZIP2_VER"
+    log_info "Building bzip2 $BZIP2_VER (static) ..."
+    cd "$PKG_BUILD/bzip2-$BZIP2_VER"
+    make CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-O2 -fPIC" libbz2.a
+    cp libbz2.a "$SYSROOT/lib/"
+    cp bzlib.h  "$SYSROOT/include/"
+    cd "$WORKSPACE_ROOT"
+    log_info "bzip2: done"
+}
+
+build_python3() {
+    build_libffi
+    build_bzip2
+    _dl python3 "$PYTHON3_URL"
+    rm -rf "$PKG_BUILD/Python-$PYTHON3_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/Python-$PYTHON3_VER"
+    log_info "Building python3 $PYTHON3_VER (static, musl cross) ..."
+    local SRC="$PKG_BUILD/Python-$PYTHON3_VER"
+    cd "$SRC"
+    # Cross-compilation requires a host python3 of matching major.minor for
+    # build-time code generation steps.
+    local HOST_PY
+    HOST_PY=$(command -v python3.13 || command -v python3 || echo "")
+    [ -z "$HOST_PY" ] && { log_err "Host python3 required for cross-compiling Python3"; return 1; }
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    CPPFLAGS="-I$SYSROOT/include -I$SYSROOT/include/ncursesw -DOPENSSL_THREADS" \
+    LDFLAGS="-L$SYSROOT/lib -static" \
+    LIBS="-lz -ldl -lm -lpthread" \
+    ./configure \
+        --host="$TARGET" --build=x86_64-linux-gnu \
+        --prefix="$SRC/_install" \
+        --with-build-python="$HOST_PY" \
+        --disable-optimizations \
+        --disable-shared \
+        --without-ensurepip \
+        --with-openssl="$SYSROOT" \
+        --with-readline \
+        ac_cv_file__dev_ptmx=yes \
+        ac_cv_file__dev_null=yes \
+        ac_cv_file__dev_ptc=no \
+        ac_cv_func_getaddrinfo=yes \
+        ac_cv_buggy_getaddrinfo=no
+    # Build with parallelism
+    make -j$(nproc)
+    make install
+    _package "python3" "$SRC/_install/bin/python3" "$PYTHON3_VER" "-" \
+        "python3 - Python 3 interpreter"
+    cd "$WORKSPACE_ROOT"
+}
+
 # ---------------------------------------------------------------------------
 sign_list() {
     if [ -f "$WORKSPACE_ROOT/pkgs/keys/signing_key.pem" ]; then
@@ -906,6 +987,8 @@ build_sysroot() {
     build_ncurses
     build_readline
     build_libevent
+    build_libffi
+    build_bzip2
     log_info "--- Sysroot complete ---"
 }
 
@@ -958,6 +1041,7 @@ main() {
         openssl)     build_sysroot; build_openssl_cli;     sign_list ;;
         iperf3)      build_iperf3;                         sign_list ;;
         sqlite3)     build_sqlite3;                        sign_list ;;
+        python3)     build_sysroot; build_python3;         sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
@@ -970,6 +1054,7 @@ main() {
             build_socat; build_tmux
             build_lua; build_zstd; build_lz4
             build_openssl_cli; build_iperf3; build_sqlite3
+            build_python3
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;
