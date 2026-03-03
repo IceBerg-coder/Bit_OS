@@ -35,6 +35,11 @@ WGET_VER="1.24.5";      WGET_URL="https://ftp.gnu.org/gnu/wget/wget-${WGET_VER}.
 TREE_VER="2.1.1";       TREE_URL="https://github.com/Old-Man-Programmer/tree/archive/refs/tags/${TREE_VER}.tar.gz"
 VIM_VER="9.1.0000";     VIM_URL="https://github.com/vim/vim/archive/refs/tags/v${VIM_VER}.tar.gz"
 FILE_VER="5.46";        FILE_URL="https://astron.com/pub/file/file-${FILE_VER}.tar.gz"
+ZIP_VER="3.0";          ZIP_URL="https://downloads.sourceforge.net/project/infozip/Zip%203.x%20%28latest%29/3.0/zip30.tar.gz"
+UNZIP_VER="6.0";        UNZIP_URL="https://downloads.sourceforge.net/project/infozip/UnZip%206.x%20%28latest%29/UnZip%206.0/unzip60.tar.gz"
+BC_VER="6.7.6";         BC_URL="https://github.com/gavinhoward/bc/releases/download/${BC_VER}/bc-${BC_VER}.tar.xz"
+GZIP_VER="1.13";        GZIP_URL="https://ftp.gnu.org/gnu/gzip/gzip-${GZIP_VER}.tar.gz"
+XZ_VER="5.6.3";         XZ_URL="https://github.com/tukaani-project/xz/releases/download/v${XZ_VER}/xz-${XZ_VER}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -435,6 +440,89 @@ build_file() {
     cd "$WORKSPACE_ROOT"
 }
 
+build_zip() {
+    _dl zip "$ZIP_URL"
+    rm -rf "$PKG_BUILD/zip30"
+    _unpack "$DL_OUT" "$PKG_BUILD/zip30"
+    log_info "Building zip $ZIP_VER (static) ..."
+    local SRC="$PKG_BUILD/zip30"
+    cd "$SRC"
+    make -f unix/Makefile CC="$CC" LD="$CC" \
+        CFLAGS="-O2 -static" LDFLAGS="-static" \
+        generic
+    _package "zip" "$SRC/zip" "$ZIP_VER" "-" \
+        "zip - create and modify ZIP archives"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_unzip() {
+    _dl unzip "$UNZIP_URL"
+    rm -rf "$PKG_BUILD/unzip60"
+    _unpack "$DL_OUT" "$PKG_BUILD/unzip60"
+    log_info "Building unzip $UNZIP_VER (static) ..."
+    local SRC="$PKG_BUILD/unzip60"
+    cd "$SRC"
+    make -f unix/Makefile CC="$CC" LD="$CC" \
+        CFLAGS="-O2 -static" LF2="-static" \
+        generic
+    _package "unzip" "$SRC/unzip" "$UNZIP_VER" "-" \
+        "unzip - extract files from ZIP archives"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_bc() {
+    _dl bc "$BC_URL"
+    rm -rf "$PKG_BUILD/bc-$BC_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/bc-$BC_VER"
+    log_info "Building bc $BC_VER (static) ..."
+    local SRC="$PKG_BUILD/bc-$BC_VER"
+    cd "$SRC"
+    # gavinhoward/bc uses its own configure (not autoconf) — no --host flag.
+    # HOSTCC must be native gcc so the 'strgen' helper runs on the build host.
+    CC="$CC" HOSTCC="gcc" CFLAGS="-O2" LDFLAGS="-static" \
+    ./configure --prefix="$SRC/_install" \
+        --disable-man-pages --disable-nls
+    make CC="$CC" LDFLAGS="-static -s"; make install
+    _package "bc" "$SRC/_install/bin/bc" "$BC_VER" "-" \
+        "bc - arbitrary precision numeric processing language and calculator"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_gzip() {
+    _dl gzip "$GZIP_URL"
+    rm -rf "$PKG_BUILD/gzip-$GZIP_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/gzip-$GZIP_VER"
+    log_info "Building gzip $GZIP_VER (static) ..."
+    local SRC="$PKG_BUILD/gzip-$GZIP_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install"
+    make; make install
+    _package "gzip" "$SRC/_install/bin/gzip" "$GZIP_VER" "-" \
+        "gzip - compress and decompress files using LZ77 algorithm"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_xz() {
+    _dl xz "$XZ_URL"
+    rm -rf "$PKG_BUILD/xz-$XZ_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/xz-$XZ_VER"
+    log_info "Building xz $XZ_VER (static) ..."
+    local SRC="$PKG_BUILD/xz-$XZ_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" \
+    LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --disable-shared --enable-static \
+        --disable-xzdec --disable-lzmadec \
+        --disable-nls --disable-scripts
+    make; make install
+    _package "xz" "$SRC/_install/bin/xz" "$XZ_VER" "-" \
+        "xz - compress and decompress XZ and LZMA files"
+    cd "$WORKSPACE_ROOT"
+}
+
 # ---------------------------------------------------------------------------
 # Sign
 # ---------------------------------------------------------------------------
@@ -493,11 +581,17 @@ main() {
         tree)        build_tree;                       sign_list ;;
         vim)         build_sysroot; build_vim;          sign_list ;;
         file)        build_sysroot; build_file;         sign_list ;;
+        zip)         build_zip;                         sign_list ;;
+        unzip)       build_unzip;                       sign_list ;;
+        bc)          build_bc;                          sign_list ;;
+        gzip)        build_gzip;                        sign_list ;;
+        xz)          build_xz;                          sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
             build_musl_libc; build_strace; build_less; build_wget
             build_tree; build_vim; build_file
+            build_zip; build_unzip; build_bc; build_gzip; build_xz
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;

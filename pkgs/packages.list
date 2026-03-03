@@ -33,3 +33,8 @@ wget             1.24.5 c6167b97a073dd379c1d7e0f92696e00e9f33546a5ea7a45fa5fea09
 tree             2.1.1  2fa5996879141f5b145323be5b39931d06f17415dc77568e479b2f9b63426741  -                tree - recursive directory listing with colours and file counts
 vim              9.1.0000 0e03358b6eb3aee3091748658abcf60c194316d66844135dd95ea91a44dd6b46  -                vim - advanced text editor with syntax highlighting and huge feature set
 file             5.46   24690ae9dd7d6c98212f969d940aa1418241ef84d9471fc29154912178d6a200  -                file - determine file type by magic number inspection
+zip              3.0    bee3d88029ad8121a5e5a3d35619ad00b71d05584fe7d5f95a9bc6cd0292da93  -                zip - create and modify ZIP archives
+unzip            6.0    ad1b6c779c3a74131e769d69c88a0e1eed13d4f08022f42294c461d0c59cb770  -                unzip - extract files from ZIP archives
+gzip             1.13   0286d6488fb3399c4dabde8d167a5b6bffe1f34fb02a35a28ae065b1b815c64d  -                gzip - compress and decompress files using LZ77 algorithm
+xz               5.6.3  ed80b47cac25a90e85492d583a83b8ccff1f65d5651576984742bf1901d2eb24  -                xz - compress and decompress XZ and LZMA files
+bc               6.7.6  2f05fde28b9a7cd7fed813ca852c2f3acc924154f9df2d96cd73de6beae8c51f  -                bc - arbitrary precision numeric processing language and calculator
