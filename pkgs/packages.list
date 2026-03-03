@@ -46,3 +46,6 @@ find             4.9.0  4673d378b9df962320ced75d99b2643b2594eee45e5f5572410e2022
 xargs            4.9.0  437e0221361768e9936205366ed34494adee5b2739cccd92930b9d8ec719e5e4  -                xargs - GNU findutils xargs
 sed              4.9    3989605f8c1ff64e54c9b9da9593c018efd8f7886ca0dcb16237903bc35447a7  -                sed - GNU stream editor
 gawk             5.3.1  1aa9f747c2d531321c5b86d18e2bd0d494cbb86541704407e7d355ed16ed7a9a  -                gawk - GNU awk pattern scanning and processing language
+patch            2.7.6  13fba4b8ac976130b3c97e1ca6ed866e18804aae0264246c79bedb6848f81420  -                patch - apply a diff file to an original
+tar              1.35   5fd0e6bf697318fe21319dd002655b0882c341ed0e5fda711a5ba26195f6c932  -                tar - GNU tape archiver
+grep             3.11   272e81214442c814bdf6764e75d37156aae7b3922f26a69ebd7720c8cdd97998  -                grep - GNU grep, egrep, fgrep — print lines matching a pattern

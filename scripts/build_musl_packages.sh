@@ -44,6 +44,9 @@ DIFFUTILS_VER="3.10";   DIFFUTILS_URL="https://ftp.gnu.org/gnu/diffutils/diffuti
 FINDUTILS_VER="4.9.0";  FINDUTILS_URL="https://ftp.gnu.org/gnu/findutils/findutils-${FINDUTILS_VER}.tar.xz"
 SED_VER="4.9";           SED_URL="https://ftp.gnu.org/gnu/sed/sed-${SED_VER}.tar.gz"
 GAWK_VER="5.3.1";        GAWK_URL="https://ftp.gnu.org/gnu/gawk/gawk-${GAWK_VER}.tar.gz"
+PATCH_VER="2.7.6";       PATCH_URL="https://ftp.gnu.org/gnu/patch/patch-${PATCH_VER}.tar.gz"
+TAR_VER="1.35";          TAR_URL="https://ftp.gnu.org/gnu/tar/tar-${TAR_VER}.tar.gz"
+GREP_VER="3.11";         GREP_URL="https://ftp.gnu.org/gnu/grep/grep-${GREP_VER}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -594,6 +597,53 @@ build_gawk() {
     cd "$WORKSPACE_ROOT"
 }
 
+build_patch() {
+    _dl patch "$PATCH_URL"
+    rm -rf "$PKG_BUILD/patch-$PATCH_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/patch-$PATCH_VER"
+    log_info "Building patch $PATCH_VER (static) ..."
+    local SRC="$PKG_BUILD/patch-$PATCH_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" --disable-nls
+    make; make install
+    _package "patch" "$SRC/_install/bin/patch" "$PATCH_VER" "-" \
+        "patch - apply a diff file to an original"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_tar() {
+    _dl tar "$TAR_URL"
+    rm -rf "$PKG_BUILD/tar-$TAR_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/tar-$TAR_VER"
+    log_info "Building tar $TAR_VER (static) ..."
+    local SRC="$PKG_BUILD/tar-$TAR_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --disable-nls --without-posix-acls --without-selinux
+    make; make install
+    _package "tar" "$SRC/_install/bin/tar" "$TAR_VER" "-" \
+        "tar - GNU tape archiver"
+    cd "$WORKSPACE_ROOT"
+}
+
+build_grep() {
+    _dl grep "$GREP_URL"
+    rm -rf "$PKG_BUILD/grep-$GREP_VER"
+    _unpack "$DL_OUT" "$PKG_BUILD/grep-$GREP_VER"
+    log_info "Building grep $GREP_VER (static) ..."
+    local SRC="$PKG_BUILD/grep-$GREP_VER"
+    cd "$SRC"
+    CC="$CC" AR="$AR" RANLIB="$RANLIB" LDFLAGS="-static" \
+    ./configure --host="$TARGET" --prefix="$SRC/_install" \
+        --disable-nls --disable-perl-regexp
+    make; make install
+    _package "grep" "$SRC/_install/bin/grep" "$GREP_VER" "-" \
+        "grep - GNU grep, egrep, fgrep — print lines matching a pattern"
+    cd "$WORKSPACE_ROOT"
+}
+
 # ---------------------------------------------------------------------------
 # Sign
 # ---------------------------------------------------------------------------
@@ -661,6 +711,9 @@ main() {
         findutils)   build_findutils;                    sign_list ;;
         sed)         build_sed;                          sign_list ;;
         gawk)        build_gawk;                         sign_list ;;
+        patch)       build_patch;                        sign_list ;;
+        tar)         build_tar;                          sign_list ;;
+        grep)        build_grep;                         sign_list ;;
         all)
             build_sysroot
             build_curl; build_nano; build_rsync; build_htop; build_jq
@@ -668,6 +721,7 @@ main() {
             build_tree; build_vim; build_file
             build_zip; build_unzip; build_bc; build_gzip; build_xz
             build_diffutils; build_findutils; build_sed; build_gawk
+            build_patch; build_tar; build_grep
             sign_list
             ;;
         --help|-h) usage; exit 0 ;;
